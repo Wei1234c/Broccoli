@@ -8,32 +8,32 @@ Wei Lin
 ![Broccoli](https://raw.githubusercontent.com/Wei1234c/Broccoli/master/jpgs/Broccoli_cluster_cover.gif)
 
 ## [Motivation and Goal]
-- Building cluster with Raspberry Pi
-  - For those who like DIY, it is very interesting to create a cluster. With the appearance of [Raspberry Pi](https://www.raspberrypi.org/), the cost of building a cluster is drastically reduced and many [examples](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved=0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732) of using the Raspberry Pi to create clusters can be found on the Internet .
-- Relationship between cost and quantity
-  - However, at present, a Raspberry Pi 3 still requires USD 35 or more, if you can build a cluster with a smaller machine, such as [ESP32](https://en.wikipedia.org/wiki/ESP32), so the cost of each node only requires USD 7 or so. Under the same budget, the lower the cost of a single node is, the more nodes can be, and it will be more ideal for some purposes.
-- The importance of software
-  - There are many existing communication and software platforms, such as Kafka, Dask, Ipython Parallel, Celery, MQTT, etc., which can be used as a mechanism for communication and integration between cluster and distributed systems. There are many common design patterns, for example: controller/master/broker corresponds to nodes/workers/clients, the message queue and message-passing mechanism, and the structure of producer/queue/consumer or publisher/topic/subscriber. With these all combined, it is possible to build an elastic and robust computing platform for distributed/parallel operations. [Celery](http://www.celeryproject.org/) is one of the famous examples.
-- Principles and Processes of Celery
-  - Celery operates in a producer/queue/consumer paradigm. It follows the [AMQP](https://www.amqp.org/) protocol and can be used with some suites (eg RabbitMQ, Redis...) The function of providing task queues is described in detail in the [Celery documents](http://docs.celeryproject.org/en/latest/getting-started/index.html). Also refer to [this]( Https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) Easy-to-understand articles.
-- Canvas is one of the cores of Celery
-  - Celery provides a sub-modules called [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html). Through Canvas it's easy to organize tasks into workflow and dispatch it to workers for processing all at once. The client only needs to wait for the final results.
-- project goal:
-  - Therefore, the goal of this project is set as: Create a package, with which we can use pattern similar to Celery Canvas on the client side and dispatch tasks to the ESP32 cluster for processing.
+- Building cluster with Raspberry Pi  
+  - For those who like DIY, it is very interesting to create a cluster. With the appearance of [Raspberry Pi](https://www.raspberrypi.org/), the cost of building a cluster is drastically reduced and many [examples](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved=0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732) of using the Raspberry Pi to create clusters can be found on the Internet.  
+- Relationship between cost and quantity  
+  - However, at present, a Raspberry Pi 3 still requires USD 35 or more, if you can build a cluster with a smaller machine, such as [ESP32](https://en.wikipedia.org/wiki/ESP32), so the cost of each node only requires USD 7 or so. Under the same budget, the lower the cost of a single node is, the more nodes can be, and it will be more ideal for some purposes.  
+- The importance of software  
+  - There are many existing communication and software platforms, such as Kafka, Dask, Ipython Parallel, Celery, MQTT, etc., which can be used as a mechanism for communication and integration between cluster and distributed systems. There are many common design patterns, for example: controller/master/broker corresponds to nodes/workers/clients, the message queue and message-passing mechanism, and the structure of producer/queue/consumer or publisher/topic/subscriber. With these all combined, it is possible to build an elastic and robust computing platform for distributed/parallel operations. [Celery](http://www.celeryproject.org/) is one of the famous examples.  
+- Principles and Processes of Celery  
+  - Celery operates in a producer/queue/consumer paradigm. It follows the [AMQP](https://www.amqp.org/) protocol and can be used with some suites (eg RabbitMQ, Redis...) The function of providing task queues is described in detail in the [Celery documents](http://docs.celeryproject.org/en/latest/getting-started/index.html). Also refer to [this]( Https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) Easy-to-understand articles.  
+- Canvas is one of the cores of Celery  
+  - Celery provides a sub-modules called [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html). Through Canvas it's easy to organize tasks into workflow and dispatch it to workers for processing all at once. The client only needs to wait for the final results.  
+- project goal:  
+  - Therefore, the goal of this project is set as: Create a package, with which we can use pattern similar to Celery Canvas on the client side and dispatch tasks to the ESP32 cluster for processing.  
 
 ## [Features]
-- Lower costs
-  - With ESP32 as a hardware platform, the cost of construction is lower.
-- Symmetrical architecture
-  - ESP32 cluster is symmetrical in its architecture
-    - Each node actually has its own task queue and also plays as both broker and worker.
-    - Each node can dispatch tasks to other ESP32 workers in the cluster.
-- Multi-brokers
-  - The reason is the same as above. Each ESP32 node is actually a combination of broker + task queue + worker.
-- Dynamic deployment of functions
-  - We can package functions that need to be executed in a module.py file and dynamically deploy the module to each node in the cluster via the network. Workers can then perform new functions.
-- Support functions and instructions similar to Canvas
-  - Support mechanisms similar to Celery Canvas to organize tasks.
+- Lower costs  
+  - With ESP32 as a hardware platform, the cost of construction is lower.  
+- Symmetrical architecture  
+  - ESP32 cluster is symmetrical in its architecture  
+    - Each node actually has its own task queue and also plays as both broker and worker.  
+    - Each node can dispatch tasks to other ESP32 workers in the cluster.  
+- Multi-brokers  
+  - The reason is the same as above. Each ESP32 node is actually a combination of broker + task queue + worker.  
+- Dynamic deployment of functions  
+  - We can package functions that need to be executed in a module.py file and dynamically deploy the module to each node in the cluster via the network. Workers can then perform new functions.  
+- Support functions and instructions similar to Canvas  
+  - Support mechanisms similar to Celery Canvas to organize tasks.  
 
 
 ### Some Canvas functionalities:

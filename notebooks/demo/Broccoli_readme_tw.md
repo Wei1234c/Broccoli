@@ -89,7 +89,7 @@ chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
 [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
 ```
 
-- **[Chunks](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chunks)** 的主要作用是把一大串的資料切成指定的份數，分發給遠端的 workers 協處處理，下例中將一個 list 切分成 10等分並發派給 workers 協助處理：
+- **[Chunks](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chunks)** 的主要作用是把一大串的資料切成指定的份數，分派給遠端的 workers 協處處理，下例中將一個 list 切分成 10等分並發派給 workers 協助處理：
 ```
 >>> res = add.chunks(zip(range(100), range(100)), 10)()
 >>> res.get()
