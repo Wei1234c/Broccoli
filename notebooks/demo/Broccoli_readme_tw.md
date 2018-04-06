@@ -17,9 +17,9 @@ Wei Lin
 - Celery 的原理與流程
   - Celery 是以 producer/queue/consumer 的模式來運作的，它遵循 [AMQP](https://www.amqp.org/) 的協議，可以搭配一些的套件 (例如: RabbitMQ, Redis...) 提供 task queues 的功能，在 Celery 的 [文件](http://docs.celeryproject.org/en/latest/getting-started/index.html) 中有詳細的說明，另外也可以參考 [這篇](https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) 淺顯易懂的文章。
 - Canvas 是 Celery 的精華之一
-  - Celery 提供了一套 [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html) 的 sub module，透過其所提供的功能，可以很容易地把一些工作 (tasks) 事先規劃好先後順序相依關係，再一次性地提交給 broker 排入 task queues 並分派給 workers 來協助處理，client 端只需要坐等最後的處理結果就可以了。很好奇它 source code 是怎麼寫的。
+  - Celery 提供了一套 [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html) 的 sub module，透過其所提供的功能，可以很容易地把一些工作 (tasks) 事先規劃好先後順序相依關係，再一次性地提交給 broker 排入 task queues 並分派給 workers 來協助處理，client 端只需要坐等最後的處理結果就可以了。很好奇它的 source code 是怎麼寫的。
 - project 目標
-  - 因此，基於上面的原因，就將這個 project 的目標就設定為: 建立一個 package，可以在 client 端透過類似 Celery Canvas 的指令模式，將工作分配給 ESP32 cluster 來協助處理。
+  - 因此，基於上面的原因，就將這個 project 的目標就設定為: 建立一個 package，可以在 client 端透過類似 Celery Canvas 的指令模式，將工作分派給 ESP32 cluster 來協助處理。
 
 ## [作法與特色]
 - 成本較低

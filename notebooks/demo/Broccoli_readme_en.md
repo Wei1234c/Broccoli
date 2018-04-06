@@ -9,7 +9,7 @@ Wei Lin
 
 ## [Motivation and Goal]
 - Building cluster with Raspberry Pi
-  - For those who like DIY, it is very interesting to create a cluster. With the appearance of [Raspberry Pi](https://www.raspberrypi.org/), the cost of building a cluster is drastically reduced and many [examples](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved= 0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732) of using the Raspberry Pi to create clusters can be found on the Internet .
+  - For those who like DIY, it is very interesting to create a cluster. With the appearance of [Raspberry Pi](https://www.raspberrypi.org/), the cost of building a cluster is drastically reduced and many [examples](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved=0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732) of using the Raspberry Pi to create clusters can be found on the Internet .
 - Relationship between cost and quantity
   - However, at present, a Raspberry Pi 3 still requires USD 35 or more, if you can build a cluster with a smaller machine, such as [ESP32](https://en.wikipedia.org/wiki/ESP32), so the cost of each node only requires USD 7 or so. Under the same budget, the lower the cost of a single node is, the more nodes can be, and it will be more ideal for some purposes.
 - The importance of software
