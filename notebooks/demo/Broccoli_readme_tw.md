@@ -9,31 +9,31 @@ Wei Lin
 
 ## [緣由與目標]
 - cluster 與 Raspberry Pi
- - 對於喜歡 DIY 的人來說，建立一個 cluster 是件很有趣的事情，隨著 [Raspberry Pi](https://www.raspberrypi.org/) 的出現，讓購置多台機器來建置 cluster 的成本大幅降低，網路上可以搜尋到很多用 Raspberry Pi 建立 cluster 的 [例子](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved=0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732)。
+  - 對於喜歡 DIY 的人來說，建立一個 cluster 是件很有趣的事情，隨著 [Raspberry Pi](https://www.raspberrypi.org/) 的出現，讓購置多台機器來建置 cluster 的成本大幅降低，網路上可以搜尋到很多用 Raspberry Pi 建立 cluster 的 [例子](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved=0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732)。
 - 成本與數量的關係
- - 但是，目前一台 Raspberry Pi 3 畢竟還是需要 NTD 1000元以上，如果可以用更小的機器，例如 [ESP32](https://en.wikipedia.org/wiki/ESP32)，來組成一個 cluster，這樣每個 node 的成本只需要 NTD 200元左右。在相同的預算下，單一節點的成本越低，nodes 的數量就可以更多，在某些用途上會更理想。
+  - 但是，目前一台 Raspberry Pi 3 畢竟還是需要 NTD 1000元以上，如果可以用更小的機器，例如 [ESP32](https://en.wikipedia.org/wiki/ESP32)，來組成一個 cluster，這樣每個 node 的成本只需要 NTD 200元左右。在相同的預算下，單一節點的成本越低，nodes 的數量就可以更多，在某些用途上會更理想。
 - 軟體的重要性
- - 現有很多通訊息定和軟體平台，例如 Kafka, Dask, Ipython Parallel, Celery, MQTT ... 都可以作為 cluster 與分散式系統中 溝通與整合的機制。有很多常見的 design patterns，例如: controller/master/broker 對應 nodes/workers/clients、透過 message queue 的機制來傳遞與管理訊息的流通、producer/queue/consumer 或 publisher/topic/subscriber 的結構。組合搭配之後可以建造出彈性且強健的分散/併行運算的運算平台， [Celery](http://www.celeryproject.org/) 是很著名的例子之一。
+  - 現有很多通訊息定和軟體平台，例如 Kafka, Dask, Ipython Parallel, Celery, MQTT ... 都可以作為 cluster 與分散式系統中 溝通與整合的機制。有很多常見的 design patterns，例如: controller/master/broker 對應 nodes/workers/clients、透過 message queue 的機制來傳遞與管理訊息的流通、producer/queue/consumer 或 publisher/topic/subscriber 的結構。組合搭配之後可以建造出彈性且強健的分散/併行運算的運算平台， [Celery](http://www.celeryproject.org/) 是很著名的例子之一。
 - Celery 的原理與流程
- - Celery 是以 producer/queue/consumer 的模式來運作的，它遵循 [AMQP](https://www.amqp.org/) 的協議，可以搭配一些的套件 (例如: RabbitMQ, Redis...) 提供 task queues 的功能，在 Celery 的 [文件](http://docs.celeryproject.org/en/latest/getting-started/index.html) 中有詳細的說明，另外也可以參考 [這篇](https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) 淺顯易懂的文章。
+  - Celery 是以 producer/queue/consumer 的模式來運作的，它遵循 [AMQP](https://www.amqp.org/) 的協議，可以搭配一些的套件 (例如: RabbitMQ, Redis...) 提供 task queues 的功能，在 Celery 的 [文件](http://docs.celeryproject.org/en/latest/getting-started/index.html) 中有詳細的說明，另外也可以參考 [這篇](https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) 淺顯易懂的文章。
 - Canvas 是 Celery 的精華之一
- - Celery 提供了一套 [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html) 的 sub module，透過其所提供的功能，可以很容易地把一些工作 (tasks) 事先規劃好先後順序相依關係，再一次性地提交給 broker 排入 task queues 並分派給 workers 來協助處理，client 端只需要坐等最後的處理結果就可以了。很好奇它 source code 是怎麼寫的。
+  - Celery 提供了一套 [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html) 的 sub module，透過其所提供的功能，可以很容易地把一些工作 (tasks) 事先規劃好先後順序相依關係，再一次性地提交給 broker 排入 task queues 並分派給 workers 來協助處理，client 端只需要坐等最後的處理結果就可以了。很好奇它 source code 是怎麼寫的。
 - project 目標
- - 因此，基於上面的原因，就將這個 project 的目標就設定為: 建立一個 package，可以在 client 端透過類似 Celery Canvas 的指令模式，將工作分配給 ESP32 cluster 來協助處理。
+  - 因此，基於上面的原因，就將這個 project 的目標就設定為: 建立一個 package，可以在 client 端透過類似 Celery Canvas 的指令模式，將工作分配給 ESP32 cluster 來協助處理。
 
 ## [作法與特色]
 - 成本較低
- - 以 ESP32 作為硬體平台，建置成本較低。
+  - 以 ESP32 作為硬體平台，建置成本較低。
 - 對稱的架構
- - ESP32 cluster 的架構上是對稱的
-   - 每個 node 其實都有自己的 task queue，也有一個兼任 broker 的 worker
-   - 每個 node 都可以發出要求，將工作分派給 cluster 中其他的 ESP32 workers
+  - ESP32 cluster 的架構上是對稱的
+    - 每個 node 其實都有自己的 task queue，也有一個兼任 broker 的 worker
+    - 每個 node 都可以發出要求，將工作分派給 cluster 中其他的 ESP32 workers
 - 多 broker
- - 原因同上，每個 node 其實也是一組 broker + task queue + worker
+  - 原因同上，每個 node 其實也是一組 broker + task queue + worker
 - 功能的動態佈署
- - 功能 (functions) 的遠端佈署: 我們可以將需要執行的 functions 包在一個 module.py 檔案中，透過網路動態佈署到 cluster 中的每個 node 上面，workers 就能夠執行新的功能。
+  - 功能 (functions) 的遠端佈署: 我們可以將需要執行的 functions 包在一個 module.py 檔案中，透過網路動態佈署到 cluster 中的每個 node 上面，workers 就能夠執行新的功能。
 - 支援類似 Canvas 的功能與指令
- - 支援類似 Celery Canvas 的機制，可以組成需要的處理流程。
+  - 支援類似 Celery Canvas 的機制，可以組成需要的處理流程。
 
 
 ### 模擬的 Canvas 功能:
@@ -108,8 +108,8 @@ chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
  
 ## [測試結果]
 - 測試設備與組成
- - 以 PC 執行 client 端程式將 tasks 分派給一個由三個 ESP32 所組成的 cluster 來處理，請參考下列 video 的說明。
- - 測試用的 [Jupyter notebook](https://github.com/Wei1234c/Broccoli/blob/master/notebooks/demo/mini%20cluster%20test.md)   
+  - 以 PC 執行 client 端程式將 tasks 分派給一個由三個 ESP32 所組成的 cluster 來處理，請參考下列 video 的說明。
+  - 測試用的 [Jupyter notebook](https://github.com/Wei1234c/Broccoli/blob/master/notebooks/demo/mini%20cluster%20test.ipynb)   
  
  
 [![ROS chatters on Windows](https://raw.githubusercontent.com/Wei1234c/Broccoli/master/jpgs/youtube.jpeg)](https://youtu.be/LbiSnh8w1kM)  
@@ -118,10 +118,10 @@ chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
 
 ## [優缺點與應用]
 - 缺點
- - 如果面對的是 CPU bound 的問題，效能上比不上 多核 CPU 上跑  multi-processes
- - 如果面對的是 IO bound，效能上比不上 多核 CPU 上跑  multi-threads
+  - 如果面對的是 CPU bound 的問題，效能上比不上 多核 CPU 上跑  multi-processes
+  - 如果面對的是 IO bound，效能上比不上 多核 CPU 上跑  multi-threads
 - 優點
- - 如果需要的是 實際在地理上的分散，例如大面積 分散地點的資料或設備監控，佈署 ESP32 的低成本與彈性，就不是一般 PC 或 Raspberry Pi 可比的。
+  - 如果需要的是 實際在地理上的分散，例如大面積 分散地點的資料或設備監控，佈署 ESP32 的低成本與彈性，就不是一般 PC 或 Raspberry Pi 可比的。
 
 #### Notes
 - 雖然所提供的功能與指令與 Celery Canvas 類似，但限於 ESP32 硬體上的限制，其實在軟體上的做法差異很大。
