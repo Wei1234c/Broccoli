@@ -28,7 +28,7 @@ Wei Lin
   - ESP32 cluster 的架構上是對稱的
     - 每個 node 其實都有自己的 task queue，也有一個兼任 broker 的 worker
     - 每個 node 都可以發出要求，將工作分派給 cluster 中其他的 ESP32 workers
-- 多 broker
+- 多 brokers
   - 原因同上，每個 node 其實也是一組 broker + task queue + worker
 - 功能的動態佈署
   - 功能 (functions) 的遠端佈署: 我們可以將需要執行的 functions 包在一個 module.py 檔案中，透過網路動態佈署到 cluster 中的每個 node 上面，workers 就能夠執行新的功能。

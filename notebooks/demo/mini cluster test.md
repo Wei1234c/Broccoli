@@ -1,0 +1,5518 @@
+
+# mini cluster of ESP32 - test
+
+ref: [Celery Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html)
+
+### Imports
+
+
+```python
+import os
+import sys
+import time
+
+sys.path.append(os.path.abspath(os.path.join('..', '..', '..', 'external', 'hidden')))
+sys.path.append(os.path.abspath(os.path.join('..', '..', 'codes', 'broccoli', 'client')))
+sys.path.append(os.path.abspath(os.path.join('..', '..', 'codes', 'broccoli', 'node')))
+sys.path.append(os.path.abspath(os.path.join('..', '..', '..', 'external', 'mqtt_network')))
+
+import client
+from collections import OrderedDict
+
+from canvas import *
+import tasks
+```
+
+    My name is Client_366
+    
+
+### Start client
+啟動 client 物件。  
+
+在本機上有一個 Broker 物件，負責：
+- 管理本機上的 task queue
+- 接受使用者發出的運算要求，並將之排入本機上的 task queue
+- 通知遠端的 workers 協助處理 tasks
+- 將工作發送給 workers 做處理
+- 收集 workers 傳回的運算結果
+- 將運算結果整合之後，傳回給使用者
+
+而我們透過 client 物件來與 Broker 物件溝通
+
+
+```python
+the_client = client.Client()
+the_client.start()
+
+while not the_client.status['Is connected']:            
+    time.sleep(1)
+    print('Node not ready yet.')
+```
+
+    
+    Sending 281 bytes
+    Message:
+    OrderedDict([('command', 'set connection name'), ('correlation_id', '2018-04-07 15:49:39.093344 1'), ('kwargs', {'name': 'Client_366'}), ('message_id', '2018-04-07 15:49:39.093344 1'), ('message_type', 'command'), ('need_result', True), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    [Connected: ('123.240.210.68', 1883)]
+    [Listen to messages]
+    Node not ready yet.
+    
+
+### Reset workers
+如果需要確保 workers 的狀態都一致，或者需要重新 depoly Python module files 到 workers 上面去，可以發送指令給遠端的 workers，要求做 reboot 回到最初的狀態。
+
+
+```python
+the_client.reset_workers()
+time.sleep(15)  # wait until workers ready.
+```
+
+    
+    Sending 234 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:40.042298 9'), ('message_id', '2018-04-07 15:49:40.042298 9'), ('message_type', 'exec'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366'), ('to_exec', 'import machine;machine.reset()')])
+    
+    
+    Data received: 234 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:40.042298 9'), ('message_id', '2018-04-07 15:49:40.042298 9'), ('message_type', 'exec'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366'), ('to_exec', 'import machine;machine.reset()')])
+    
+    No module named 'machine'
+    
+    Data received: 263 bytes
+    Message:
+    OrderedDict([('command', 'set connection name'), ('correlation_id', '5108'), ('kwargs', {'name': 'NodeMCU_b4e62d891371'}), ('message_id', '5108'), ('message_type', 'command'), ('need_result', True), ('receiver', 'Hub'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 263 bytes
+    Message:
+    OrderedDict([('command', 'set connection name'), ('correlation_id', '5033'), ('kwargs', {'name': 'NodeMCU_b4e62d890499'}), ('message_id', '5033'), ('message_type', 'command'), ('need_result', True), ('receiver', 'Hub'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 263 bytes
+    Message:
+    OrderedDict([('command', 'set connection name'), ('correlation_id', '6137'), ('kwargs', {'name': 'NodeMCU_b4e62d890a95'}), ('message_id', '6137'), ('message_type', 'command'), ('need_result', True), ('receiver', 'Hub'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+
+### Upload tasks module file
+Reboot 之後的 workers 只有最基本的功能，如果我們需要 workers 執行額外的功能 (functions)，則需要先將定義這些 functions 的 module 檔案上傳給 workers 並且要求它們 import。  
+
+例如： 我們上傳給每一個 worker 一個`tasks.py`的檔案，其中定義幾個 functions:
+```
+from canvas import Task
+
+@Task
+def add(x, y, op=None):
+    return op(x, y) if op else x + y
+
+@Task
+def xsum(x):
+    return sum(x)
+
+@Task
+def mul(x, y, op=None):
+    return op(x, y) if op else x * y
+
+@Task
+def mapper(word):
+    return (word, 1) if len(word) > 3 else None
+
+```
+
+Workers 收到這個`tasks.py`檔案之後，會做`import tasks`的動作，所以就可以呼叫 tasks.add() 這個 function。
+
+
+```python
+tasks_file = os.path.join('..', '..', 'codes', 'broccoli', 'client', 'tasks.py')
+the_client.sync_file(tasks_file, load_as_tasks = True)
+```
+
+    
+    Sending 550 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:55.123497 22'), ('kwargs', {'filename': 'tasks.py', 'file': 'from canvas import Task\n\n@Task\ndef add(x, y, op=None):\n    return op(x, y) if op else x + y\n\n@Task\ndef xsum(x):\n    return sum(x)\n\n@Task\ndef mul(x, y, op=None):\n    return op(x, y) if op else x * y\n\n@Task\ndef mapper(word):\n    return (word, 1) if len(word) > 3 else None\n', 'load_as_tasks': True}), ('message_id', '2018-04-07 15:49:55.123497 22'), ('message_type', 'file'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+
+<font color='blue'>
+## DEMOs
+
+### Chains
+Celery [Chains](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chains) 的主要作用是把多個運算**串聯**起來，前一個運算的結果是下一個運算的參數，這樣就可以組成一個完整的運算過程，例如下例中用`chain`組成一個 ((4+4) * 8) * 10  = 640 的計算過程
+```
+>>> # (4 + 4) * 8 * 10
+>>> res = chain(add.s(4, 4), mul.s(8), mul.s(10))
+proj.tasks.add(4, 4) | proj.tasks.mul(8) | proj.tasks.mul(10)
+
+>>> res = chain(add.s(4, 4), mul.s(8), mul.s(10))()
+>>> res.get()
+640
+```
+
+我們可以在 ESP32 cluster 上面也做同樣的事情：
+
+
+```python
+ch = chain(tasks.add.s(4, 4), tasks.mul.s(8), tasks.mul.s(10))
+ch.get()
+```
+
+    
+    Sending 257 bytes
+    
+    Data received: 550 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:55.171399 26'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:55.171399 26'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:55.123497 22'), ('kwargs', {'filename': 'tasks.py', 'file': 'from canvas import Task\n\n@Task\ndef add(x, y, op=None):\n    return op(x, y) if op else x + y\n\n@Task\ndef xsum(x):\n    return sum(x)\n\n@Task\ndef mul(x, y, op=None):\n    return op(x, y) if op else x * y\n\n@Task\ndef mapper(word):\n    return (word, 1) if len(word) > 3 else None\n', 'load_as_tasks': True}), ('message_id', '2018-04-07 15:49:55.123497 22'), ('message_type', 'file'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 257 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:55.171399 26'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:55.171399 26'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '13967'), ('function', 'dequeue_task'), ('message_id', '13967'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '13967'), ('message_id', '2018-04-07 15:49:56.154813 122'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:55.171399 25', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:55.171399 25', 'task_id': '2018-04-07 15:49:55.171399 25'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 486 bytes
+    Message:
+    OrderedDict([('correlation_id', '13967'), ('message_id', '2018-04-07 15:49:56.154813 122'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:55.171399 25', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:55.171399 25', 'task_id': '2018-04-07 15:49:55.171399 25'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '14061'), ('function', 'dequeue_task'), ('message_id', '14061'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '14061'), ('message_id', '2018-04-07 15:49:56.319183 134'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '14061'), ('message_id', '2018-04-07 15:49:56.319183 134'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '13999'), ('function', 'dequeue_task'), ('message_id', '13999'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '13999'), ('message_id', '2018-04-07 15:49:56.609931 154'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '13999'), ('message_id', '2018-04-07 15:49:56.609931 154'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 522 bytes
+    Message:
+    OrderedDict([('correlation_id', '14522'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 8, 'function': 'tasks.add', 'args': [4, 4], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:49:55.171399 25', 'message_type': 'result', 'task_id': '2018-04-07 15:49:55.171399 25', 'correlation_id': '2018-04-07 15:49:55.171399 25', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '14522'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Sending 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:56.733193 167'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:56.733193 167'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    Data received: 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:56.733193 167'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:56.733193 167'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '15150'), ('function', 'dequeue_task'), ('message_id', '15150'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '15150'), ('message_id', '2018-04-07 15:49:57.206883 204'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:56.733193 166', 'function': 'tasks.mul', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:56.733193 166', 'task_id': '2018-04-07 15:49:56.733193 166'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '15150'), ('message_id', '2018-04-07 15:49:57.206883 204'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:56.733193 166', 'function': 'tasks.mul', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:56.733193 166', 'task_id': '2018-04-07 15:49:56.733193 166'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '15073'), ('function', 'dequeue_task'), ('message_id', '15073'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '15073'), ('message_id', '2018-04-07 15:49:57.436327 221'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '15073'), ('message_id', '2018-04-07 15:49:57.436327 221'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '15173'), ('function', 'dequeue_task'), ('message_id', '15173'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '15173'), ('message_id', '2018-04-07 15:49:57.501585 225'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '15173'), ('message_id', '2018-04-07 15:49:57.501585 225'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '15905'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 64, 'function': 'tasks.mul', 'args': [8, 8], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:49:56.733193 166', 'message_type': 'result', 'task_id': '2018-04-07 15:49:56.733193 166', 'correlation_id': '2018-04-07 15:49:56.733193 166', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '15905'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Sending 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:57.918923 260'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:57.918923 260'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    Data received: 259 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:57.918923 260'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:57.918923 260'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '16309'), ('function', 'dequeue_task'), ('message_id', '16309'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '16309'), ('message_id', '2018-04-07 15:49:58.267742 286'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:57.918923 259', 'function': 'tasks.mul', 'args': (10, 64), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:57.918923 259', 'task_id': '2018-04-07 15:49:57.918923 259'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 491 bytes
+    Message:
+    OrderedDict([('correlation_id', '16309'), ('message_id', '2018-04-07 15:49:58.267742 286'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:57.918923 259', 'function': 'tasks.mul', 'args': (10, 64), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:57.918923 259', 'task_id': '2018-04-07 15:49:57.918923 259'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '16252'), ('function', 'dequeue_task'), ('message_id', '16252'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '16252'), ('message_id', '2018-04-07 15:49:58.371831 297'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '16252'), ('message_id', '2018-04-07 15:49:58.371831 297'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '16228'), ('function', 'dequeue_task'), ('message_id', '16228'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '16228'), ('message_id', '2018-04-07 15:49:58.449997 305'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '16228'), ('message_id', '2018-04-07 15:49:58.449997 305'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '16863'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 640, 'function': 'tasks.mul', 'args': [10, 64], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:49:57.918923 259', 'message_type': 'result', 'task_id': '2018-04-07 15:49:57.918923 259', 'correlation_id': '2018-04-07 15:49:57.918923 259', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '16863'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+
+
+
+
+    640
+
+
+
+### Groups
+Celery [Groups](http://docs.celeryproject.org/en/latest/userguide/canvas.html#groups) 的主要作用是把多個運算**併聯**起來，把很多同質性的運算同時發送給許多遠端的 workers 協助處理，再收集 workers 傳回來的結果彙整成為一個結果集，例如下例中用`group`同時計算 (2+2) 和 (4+4)，結果是 [4, 8]
+```
+>>> from celery import group
+>>> from proj.tasks import add
+
+>>> group(add.s(2, 2), add.s(4, 4))
+(proj.tasks.add(2, 2), proj.tasks.add(4, 4))  
+
+>>> g = group(add.s(2, 2), add.s(4, 4))
+>>> res = g()
+>>> res.get()
+[4, 8]
+```
+我們可以在 ESP32 cluster 上面也做同樣的事情：
+
+
+```python
+gp = group([tasks.add.s(2, 2), tasks.add.s(4, 4)])
+gp.get()
+```
+
+    
+    Sending 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:58.935871 365'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:58.935871 365'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:49:58.935871 365'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:49:58.935871 365'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '17316'), ('function', 'dequeue_task'), ('message_id', '17316'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '17316'), ('message_id', '2018-04-07 15:49:59.343548 411'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:58.935871 364', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:58.935871 364', 'task_id': '2018-04-07 15:49:58.935871 364'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '17316'), ('message_id', '2018-04-07 15:49:59.343548 411'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:58.935871 364', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:58.935871 364', 'task_id': '2018-04-07 15:49:58.935871 364'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '17231'), ('function', 'dequeue_task'), ('message_id', '17231'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '17231'), ('message_id', '2018-04-07 15:49:59.508704 430'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:58.960309 368', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:58.960309 368', 'task_id': '2018-04-07 15:49:58.960309 368'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '17231'), ('message_id', '2018-04-07 15:49:59.508704 430'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:49:58.960309 368', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:49:58.960309 368', 'task_id': '2018-04-07 15:49:58.960309 368'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '17255'), ('function', 'dequeue_task'), ('message_id', '17255'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '17255'), ('message_id', '2018-04-07 15:49:59.661896 449'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '17255'), ('message_id', '2018-04-07 15:49:59.661896 449'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '17820'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 4, 'function': 'tasks.add', 'args': [2, 2], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:49:58.935871 364', 'message_type': 'result', 'task_id': '2018-04-07 15:49:58.935871 364', 'correlation_id': '2018-04-07 15:49:58.935871 364', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '17820'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '17926'), ('function', 'dequeue_task'), ('message_id', '17926'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '17926'), ('message_id', '2018-04-07 15:49:59.992608 485'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '17926'), ('message_id', '2018-04-07 15:49:59.992608 485'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '17862'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 8, 'function': 'tasks.add', 'args': [4, 4], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:49:58.960309 368', 'message_type': 'result', 'task_id': '2018-04-07 15:49:58.960309 368', 'correlation_id': '2018-04-07 15:49:58.960309 368', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '17862'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+
+
+
+
+    [4, 8]
+
+
+
+我們可以用 iterators:
+```
+>>> group(add.s(i, i) for i in xrange(10))()
+```
+
+
+```python
+gp = group([tasks.add.s(i, i) for i in range(10)])
+gp.get()
+```
+
+    
+    Sending 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:00.407715 536'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:00.407715 536'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:00.407715 536'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:00.407715 536'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '18735'), ('function', 'dequeue_task'), ('message_id', '18735'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '18735'), ('message_id', '2018-04-07 15:50:00.813708 587'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.407715 535', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.407715 535', 'task_id': '2018-04-07 15:50:00.407715 535'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '18735'), ('message_id', '2018-04-07 15:50:00.813708 587'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.407715 535', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.407715 535', 'task_id': '2018-04-07 15:50:00.407715 535'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '18711'), ('function', 'dequeue_task'), ('message_id', '18711'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '18711'), ('message_id', '2018-04-07 15:50:00.967751 603'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 539', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 539', 'task_id': '2018-04-07 15:50:00.431111 539'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '18711'), ('message_id', '2018-04-07 15:50:00.967751 603'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 539', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 539', 'task_id': '2018-04-07 15:50:00.431111 539'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '18865'), ('function', 'dequeue_task'), ('message_id', '18865'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '18865'), ('message_id', '2018-04-07 15:50:01.059998 611'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 540', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 540', 'task_id': '2018-04-07 15:50:00.431111 540'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '18865'), ('message_id', '2018-04-07 15:50:01.059998 611'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 540', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 540', 'task_id': '2018-04-07 15:50:00.431111 540'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '19350'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 2, 'function': 'tasks.add', 'args': [1, 1], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 539', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 539', 'correlation_id': '2018-04-07 15:50:00.431111 539', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '19350'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '19375'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 0, 'function': 'tasks.add', 'args': [0, 0], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.407715 535', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.407715 535', 'correlation_id': '2018-04-07 15:50:00.407715 535', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '19375'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '19454'), ('function', 'dequeue_task'), ('message_id', '19454'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '19454'), ('message_id', '2018-04-07 15:50:01.826422 702'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 541', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 541', 'task_id': '2018-04-07 15:50:00.431111 541'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '19454'), ('message_id', '2018-04-07 15:50:01.826422 702'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 541', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 541', 'task_id': '2018-04-07 15:50:00.431111 541'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '19478'), ('function', 'dequeue_task'), ('message_id', '19478'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '19478'), ('message_id', '2018-04-07 15:50:01.917750 710'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 542', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 542', 'task_id': '2018-04-07 15:50:00.431111 542'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '19478'), ('message_id', '2018-04-07 15:50:01.917750 710'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 542', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 542', 'task_id': '2018-04-07 15:50:00.431111 542'}, 5)), ('sender', 'Client_366')])
+    
+    Data received: 525 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '19499'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 4, 'function': 'tasks.add', 'args': [2, 2], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 540', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 540', 'correlation_id': '2018-04-07 15:50:00.431111 540', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '19499'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '19603'), ('function', 'dequeue_task'), ('message_id', '19603'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '19603'), ('message_id', '2018-04-07 15:50:02.177123 738'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 543', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 543', 'task_id': '2018-04-07 15:50:00.431111 543'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '19603'), ('message_id', '2018-04-07 15:50:02.177123 738'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 543', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 543', 'task_id': '2018-04-07 15:50:00.431111 543'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '20304'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 6, 'function': 'tasks.add', 'args': [3, 3], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 541', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 541', 'correlation_id': '2018-04-07 15:50:00.431111 541', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '20304'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '20328'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 8, 'function': 'tasks.add', 'args': [4, 4], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 542', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 542', 'correlation_id': '2018-04-07 15:50:00.431111 542', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '20328'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '20411'), ('function', 'dequeue_task'), ('message_id', '20411'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '20411'), ('message_id', '2018-04-07 15:50:02.653376 795'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 544', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 544', 'task_id': '2018-04-07 15:50:00.431111 544'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '20411'), ('message_id', '2018-04-07 15:50:02.653376 795'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 544', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 544', 'task_id': '2018-04-07 15:50:00.431111 544'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '20434'), ('function', 'dequeue_task'), ('message_id', '20434'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '20434'), ('message_id', '2018-04-07 15:50:02.867291 818'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 545', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 545', 'task_id': '2018-04-07 15:50:00.431111 545'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '20434'), ('message_id', '2018-04-07 15:50:02.867291 818'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 545', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 545', 'task_id': '2018-04-07 15:50:00.431111 545'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '20609'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 10, 'function': 'tasks.add', 'args': [5, 5], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 543', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 543', 'correlation_id': '2018-04-07 15:50:00.431111 543', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '20609'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '20713'), ('function', 'dequeue_task'), ('message_id', '20713'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '20713'), ('message_id', '2018-04-07 15:50:03.225827 853'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 546', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 546', 'task_id': '2018-04-07 15:50:00.431111 546'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    Message:
+    OrderedDict([('correlation_id', '20713'), ('message_id', '2018-04-07 15:50:03.225827 853'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 546', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 546', 'task_id': '2018-04-07 15:50:00.431111 546'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '21051'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 12, 'function': 'tasks.add', 'args': [6, 6], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 544', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 544', 'correlation_id': '2018-04-07 15:50:00.431111 544', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '21051'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '21155'), ('function', 'dequeue_task'), ('message_id', '21155'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '21155'), ('message_id', '2018-04-07 15:50:03.669037 896'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 547', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 547', 'task_id': '2018-04-07 15:50:00.431111 547'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 489 bytes
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '21318'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 14, 'function': 'tasks.add', 'args': [7, 7], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 545', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 545', 'correlation_id': '2018-04-07 15:50:00.431111 545', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '21318'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    Message:
+    OrderedDict([('correlation_id', '21155'), ('message_id', '2018-04-07 15:50:03.669037 896'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:00.431111 547', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:00.431111 547', 'task_id': '2018-04-07 15:50:00.431111 547'}, 0)), ('sender', 'Client_366')])
+    
+    Data received: 223 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '21421'), ('function', 'dequeue_task'), ('message_id', '21421'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '21421'), ('message_id', '2018-04-07 15:50:03.764069 906'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    Message:
+    OrderedDict([('correlation_id', '21421'), ('message_id', '2018-04-07 15:50:03.764069 906'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '22070'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 16, 'function': 'tasks.add', 'args': [8, 8], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 546', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 546', 'correlation_id': '2018-04-07 15:50:00.431111 546', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '22070'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '22173'), ('function', 'dequeue_task'), ('message_id', '22173'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '22173'), ('message_id', '2018-04-07 15:50:04.208857 956'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 208 bytes
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '22060'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 18, 'function': 'tasks.add', 'args': [9, 9], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:00.431111 547', 'message_type': 'result', 'task_id': '2018-04-07 15:50:00.431111 547', 'correlation_id': '2018-04-07 15:50:00.431111 547', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '22060'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    Message:
+    OrderedDict([('correlation_id', '22173'), ('message_id', '2018-04-07 15:50:04.208857 956'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    
+
+
+
+
+    [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+
+
+
+### Chords
+Celery [Chords](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chords) 的主要作用是由兩段運算所組成的，第一段是一個`Groups`運算，其運算的結果會傳給第二段中的運算，作為其運算所需的參數。  
+
+其作用可以用以下的例子來說明，`header`運算的結果會傳給`callback`做進一步的處理：
+```
+>>> callback = tsum.s()
+>>> header = [add.s(i, i) for i in range(10)]
+>>> result = chord(header)(callback)
+>>> result.get()
+90
+```
+我們可以在 ESP32 cluster 上面也做同樣的事情：
+
+
+```python
+callback = tasks.xsum.s()
+header = [tasks.add.s(i, i) for i in range(10)]
+async_result = chord(header)(callback)
+async_result.get()
+```
+
+    
+    Sending 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:04.313167 967'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:04.313167 967'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 259 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:04.313167 967'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:04.313167 967'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '22639'), ('function', 'dequeue_task'), ('message_id', '22639'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '22639'), ('message_id', '2018-04-07 15:50:04.713916 1015'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.313167 966', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.313167 966', 'task_id': '2018-04-07 15:50:04.313167 966'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '22639'), ('message_id', '2018-04-07 15:50:04.713916 1015'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.313167 966', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.313167 966', 'task_id': '2018-04-07 15:50:04.313167 966'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '22663'), ('function', 'dequeue_task'), ('message_id', '22663'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '22663'), ('message_id', '2018-04-07 15:50:04.856497 1030'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 970', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 970', 'task_id': '2018-04-07 15:50:04.336227 970'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '22663'), ('message_id', '2018-04-07 15:50:04.856497 1030'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 970', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 970', 'task_id': '2018-04-07 15:50:04.336227 970'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '23344'), ('function', 'dequeue_task'), ('message_id', '23344'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '23344'), ('message_id', '2018-04-07 15:50:05.331806 1080'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 971', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 971', 'task_id': '2018-04-07 15:50:04.336227 971'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '23344'), ('message_id', '2018-04-07 15:50:05.331806 1080'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 971', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 971', 'task_id': '2018-04-07 15:50:04.336227 971'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '23259'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 0, 'function': 'tasks.add', 'args': [0, 0], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.313167 966', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.313167 966', 'correlation_id': '2018-04-07 15:50:04.313167 966', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '23259'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '23292'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 2, 'function': 'tasks.add', 'args': [1, 1], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 970', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 970', 'correlation_id': '2018-04-07 15:50:04.336227 970', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '23292'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '23363'), ('function', 'dequeue_task'), ('message_id', '23363'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '23363'), ('message_id', '2018-04-07 15:50:05.782960 1116'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 972', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 972', 'task_id': '2018-04-07 15:50:04.336227 972'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '23363'), ('message_id', '2018-04-07 15:50:05.782960 1116'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 972', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 972', 'task_id': '2018-04-07 15:50:04.336227 972'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '23398'), ('function', 'dequeue_task'), ('message_id', '23398'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '23398'), ('message_id', '2018-04-07 15:50:05.993525 1136'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 973', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 973', 'task_id': '2018-04-07 15:50:04.336227 973'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '23398'), ('message_id', '2018-04-07 15:50:05.993525 1136'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 973', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 973', 'task_id': '2018-04-07 15:50:04.336227 973'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '23777'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 4, 'function': 'tasks.add', 'args': [2, 2], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 971', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 971', 'correlation_id': '2018-04-07 15:50:04.336227 971', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '23777'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '23881'), ('function', 'dequeue_task'), ('message_id', '23881'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '23881'), ('message_id', '2018-04-07 15:50:06.168980 1152'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 974', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 974', 'task_id': '2018-04-07 15:50:04.336227 974'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '23881'), ('message_id', '2018-04-07 15:50:06.168980 1152'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 974', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 974', 'task_id': '2018-04-07 15:50:04.336227 974'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '24384'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 6, 'function': 'tasks.add', 'args': [3, 3], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 972', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 972', 'correlation_id': '2018-04-07 15:50:04.336227 972', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '24384'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '24408'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 8, 'function': 'tasks.add', 'args': [4, 4], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 973', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 973', 'correlation_id': '2018-04-07 15:50:04.336227 973', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '24408'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '24488'), ('function', 'dequeue_task'), ('message_id', '24488'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '24488'), ('message_id', '2018-04-07 15:50:06.724449 1211'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 975', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 975', 'task_id': '2018-04-07 15:50:04.336227 975'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '24488'), ('message_id', '2018-04-07 15:50:06.724449 1211'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 975', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 975', 'task_id': '2018-04-07 15:50:04.336227 975'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '24512'), ('function', 'dequeue_task'), ('message_id', '24512'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '24512'), ('message_id', '2018-04-07 15:50:06.906904 1229'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 976', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 976', 'task_id': '2018-04-07 15:50:04.336227 976'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '24512'), ('message_id', '2018-04-07 15:50:06.906904 1229'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 976', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 976', 'task_id': '2018-04-07 15:50:04.336227 976'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '24622'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 10, 'function': 'tasks.add', 'args': [5, 5], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 974', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 974', 'correlation_id': '2018-04-07 15:50:04.336227 974', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '24622'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '24726'), ('function', 'dequeue_task'), ('message_id', '24726'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '24726'), ('message_id', '2018-04-07 15:50:07.103018 1248'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 977', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 977', 'task_id': '2018-04-07 15:50:04.336227 977'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 490 bytes
+    Message:
+    OrderedDict([('correlation_id', '24726'), ('message_id', '2018-04-07 15:50:07.103018 1248'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 977', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 977', 'task_id': '2018-04-07 15:50:04.336227 977'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '25274'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 12, 'function': 'tasks.add', 'args': [6, 6], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 975', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 975', 'correlation_id': '2018-04-07 15:50:04.336227 975', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '25274'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '25298'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 14, 'function': 'tasks.add', 'args': [7, 7], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 976', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 976', 'correlation_id': '2018-04-07 15:50:04.336227 976', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '25298'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '25402'), ('function', 'dequeue_task'), ('message_id', '25402'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '25402'), ('message_id', '2018-04-07 15:50:07.788877 1318'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 978', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 978', 'task_id': '2018-04-07 15:50:04.336227 978'}, 0)), ('sender', 'Client_366')])
+    
+    Data received: 526 bytes
+    
+    Sending 490 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '25402'), ('message_id', '2018-04-07 15:50:07.788877 1318'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:04.336227 978', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:04.336227 978', 'task_id': '2018-04-07 15:50:04.336227 978'}, 0)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '25538'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 16, 'function': 'tasks.add', 'args': [8, 8], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 977', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 977', 'correlation_id': '2018-04-07 15:50:04.336227 977', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '25538'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '25642'), ('function', 'dequeue_task'), ('message_id', '25642'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '25642'), ('message_id', '2018-04-07 15:50:08.018429 1344'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '25642'), ('message_id', '2018-04-07 15:50:08.018429 1344'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '25377'), ('function', 'dequeue_task'), ('message_id', '25377'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '25377'), ('message_id', '2018-04-07 15:50:08.208461 1363'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '25377'), ('message_id', '2018-04-07 15:50:08.208461 1363'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 526 bytes
+    Message:
+    OrderedDict([('correlation_id', '26407'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 18, 'function': 'tasks.add', 'args': [9, 9], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:04.336227 978', 'message_type': 'result', 'task_id': '2018-04-07 15:50:04.336227 978', 'correlation_id': '2018-04-07 15:50:04.336227 978', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '26407'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Sending 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:08.585069 1412'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:08.585069 1412'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:08.585069 1412'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:08.585069 1412'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '27028'), ('function', 'dequeue_task'), ('message_id', '27028'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '27028'), ('message_id', '2018-04-07 15:50:09.088425 1460'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:08.585069 1411', 'function': 'tasks.xsum', 'args': ([0, 2, 4, 6, 8, 10, 12, 14, 16, 18],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:08.585069 1411', 'task_id': '2018-04-07 15:50:08.585069 1411'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 525 bytes
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '26952'), ('function', 'dequeue_task'), ('message_id', '26952'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '26952'), ('message_id', '2018-04-07 15:50:09.116474 1463'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '26952'), ('message_id', '2018-04-07 15:50:09.116474 1463'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '27028'), ('message_id', '2018-04-07 15:50:09.088425 1460'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:08.585069 1411', 'function': 'tasks.xsum', 'args': ([0, 2, 4, 6, 8, 10, 12, 14, 16, 18],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:08.585069 1411', 'task_id': '2018-04-07 15:50:08.585069 1411'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '26977'), ('function', 'dequeue_task'), ('message_id', '26977'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '26977'), ('message_id', '2018-04-07 15:50:09.176634 1466'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '26977'), ('message_id', '2018-04-07 15:50:09.176634 1466'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 561 bytes
+    Message:
+    OrderedDict([('correlation_id', '27546'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 90, 'function': 'tasks.xsum', 'args': [[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:08.585069 1411', 'message_type': 'result', 'task_id': '2018-04-07 15:50:08.585069 1411', 'correlation_id': '2018-04-07 15:50:08.585069 1411', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '27546'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+
+
+
+
+    90
+
+
+
+上述的運算可以直接寫成：
+```
+chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
+```
+我們可以在 ESP32 cluster 上面也做同樣的事情：
+
+
+```python
+async_result = chord([tasks.add.s(i, i) for i in range(10)])(tasks.xsum.s())
+async_result.get()
+```
+
+    
+    Sending 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:09.646531 1515'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:09.646531 1515'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    Data received: 261 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:09.646531 1515'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:09.646531 1515'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '27990'), ('function', 'dequeue_task'), ('message_id', '27990'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '27990'), ('message_id', '2018-04-07 15:50:10.016813 1561'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.646531 1514', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.646531 1514', 'task_id': '2018-04-07 15:50:09.646531 1514'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '27990'), ('message_id', '2018-04-07 15:50:10.016813 1561'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.646531 1514', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.646531 1514', 'task_id': '2018-04-07 15:50:09.646531 1514'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '28047'), ('function', 'dequeue_task'), ('message_id', '28047'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '28047'), ('message_id', '2018-04-07 15:50:10.200340 1581'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1518', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1518', 'task_id': '2018-04-07 15:50:09.669592 1518'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '28047'), ('message_id', '2018-04-07 15:50:10.200340 1581'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1518', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1518', 'task_id': '2018-04-07 15:50:09.669592 1518'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '27971'), ('function', 'dequeue_task'), ('message_id', '27971'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '27971'), ('message_id', '2018-04-07 15:50:10.355947 1597'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1519', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1519', 'task_id': '2018-04-07 15:50:09.669592 1519'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '27971'), ('message_id', '2018-04-07 15:50:10.355947 1597'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1519', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1519', 'task_id': '2018-04-07 15:50:09.669592 1519'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '28697'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 2, 'function': 'tasks.add', 'args': [1, 1], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1518', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1518', 'correlation_id': '2018-04-07 15:50:09.669592 1518', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '28697'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '28802'), ('function', 'dequeue_task'), ('message_id', '28802'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '28802'), ('message_id', '2018-04-07 15:50:10.861072 1647'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1520', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1520', 'task_id': '2018-04-07 15:50:09.669592 1520'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '28802'), ('message_id', '2018-04-07 15:50:10.861072 1647'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1520', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1520', 'task_id': '2018-04-07 15:50:09.669592 1520'}, 6)), ('sender', 'Client_366')])
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '28609'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 0, 'function': 'tasks.add', 'args': [0, 0], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.646531 1514', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.646531 1514', 'correlation_id': '2018-04-07 15:50:09.646531 1514', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '28609'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '28713'), ('function', 'dequeue_task'), ('message_id', '28713'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '28713'), ('message_id', '2018-04-07 15:50:11.014079 1658'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1521', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1521', 'task_id': '2018-04-07 15:50:09.669592 1521'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '28713'), ('message_id', '2018-04-07 15:50:11.014079 1658'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1521', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1521', 'task_id': '2018-04-07 15:50:09.669592 1521'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '28739'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 4, 'function': 'tasks.add', 'args': [2, 2], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1519', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1519', 'correlation_id': '2018-04-07 15:50:09.669592 1519', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '28739'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '28843'), ('function', 'dequeue_task'), ('message_id', '28843'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '28843'), ('message_id', '2018-04-07 15:50:11.136404 1667'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1522', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1522', 'task_id': '2018-04-07 15:50:09.669592 1522'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '28843'), ('message_id', '2018-04-07 15:50:11.136404 1667'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1522', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1522', 'task_id': '2018-04-07 15:50:09.669592 1522'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '29298'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 6, 'function': 'tasks.add', 'args': [3, 3], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1520', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1520', 'correlation_id': '2018-04-07 15:50:09.669592 1520', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '29298'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '29403'), ('function', 'dequeue_task'), ('message_id', '29403'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '29403'), ('message_id', '2018-04-07 15:50:11.593968 1720'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1523', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1523', 'task_id': '2018-04-07 15:50:09.669592 1523'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '29403'), ('message_id', '2018-04-07 15:50:11.593968 1720'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1523', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1523', 'task_id': '2018-04-07 15:50:09.669592 1523'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '29474'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 8, 'function': 'tasks.add', 'args': [4, 4], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1521', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1521', 'correlation_id': '2018-04-07 15:50:09.669592 1521', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '29474'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '29578'), ('function', 'dequeue_task'), ('message_id', '29578'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '29578'), ('message_id', '2018-04-07 15:50:11.828659 1744'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1524', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1524', 'task_id': '2018-04-07 15:50:09.669592 1524'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '29578'), ('message_id', '2018-04-07 15:50:11.828659 1744'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1524', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1524', 'task_id': '2018-04-07 15:50:09.669592 1524'}, 2)), ('sender', 'Client_366')])
+    
+    Data received: 529 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '29535'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 10, 'function': 'tasks.add', 'args': [5, 5], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1522', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1522', 'correlation_id': '2018-04-07 15:50:09.669592 1522', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '29535'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '29640'), ('function', 'dequeue_task'), ('message_id', '29640'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '29640'), ('message_id', '2018-04-07 15:50:12.028243 1766'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1525', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1525', 'task_id': '2018-04-07 15:50:09.669592 1525'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '29640'), ('message_id', '2018-04-07 15:50:12.028243 1766'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1525', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1525', 'task_id': '2018-04-07 15:50:09.669592 1525'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '30065'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 12, 'function': 'tasks.add', 'args': [6, 6], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1523', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1523', 'correlation_id': '2018-04-07 15:50:09.669592 1523', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '30065'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '30169'), ('function', 'dequeue_task'), ('message_id', '30169'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '30169'), ('message_id', '2018-04-07 15:50:12.361476 1803'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1526', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1526', 'task_id': '2018-04-07 15:50:09.669592 1526'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    
+    Data received: 529 bytesMessage:
+    OrderedDict([('correlation_id', '30169'), ('message_id', '2018-04-07 15:50:12.361476 1803'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:09.669592 1526', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:09.669592 1526', 'task_id': '2018-04-07 15:50:09.669592 1526'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '30207'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 14, 'function': 'tasks.add', 'args': [7, 7], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1524', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1524', 'correlation_id': '2018-04-07 15:50:09.669592 1524', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '30207'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '30312'), ('function', 'dequeue_task'), ('message_id', '30312'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '30312'), ('message_id', '2018-04-07 15:50:12.602643 1822'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '30599'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 16, 'function': 'tasks.add', 'args': [8, 8], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1525', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1525', 'correlation_id': '2018-04-07 15:50:09.669592 1525', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '30599'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    Message:
+    OrderedDict([('correlation_id', '30312'), ('message_id', '2018-04-07 15:50:12.602643 1822'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '30702'), ('function', 'dequeue_task'), ('message_id', '30702'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '30702'), ('message_id', '2018-04-07 15:50:12.795574 1842'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '30702'), ('message_id', '2018-04-07 15:50:12.795574 1842'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '30897'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 18, 'function': 'tasks.add', 'args': [9, 9], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:09.669592 1526', 'message_type': 'result', 'task_id': '2018-04-07 15:50:09.669592 1526', 'correlation_id': '2018-04-07 15:50:09.669592 1526', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '30897'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Sending 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:12.933953 1858'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:12.933953 1858'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:12.933953 1858'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:12.933953 1858'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '31344'), ('function', 'dequeue_task'), ('message_id', '31344'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '31344'), ('message_id', '2018-04-07 15:50:13.325995 1898'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:12.933953 1857', 'function': 'tasks.xsum', 'args': ([0, 2, 4, 6, 8, 10, 12, 14, 16, 18],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:12.933953 1857', 'task_id': '2018-04-07 15:50:12.933953 1857'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 525 bytes
+    Message:
+    OrderedDict([('correlation_id', '31344'), ('message_id', '2018-04-07 15:50:13.325995 1898'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:12.933953 1857', 'function': 'tasks.xsum', 'args': ([0, 2, 4, 6, 8, 10, 12, 14, 16, 18],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:12.933953 1857', 'task_id': '2018-04-07 15:50:12.933953 1857'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '31269'), ('function', 'dequeue_task'), ('message_id', '31269'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '31269'), ('message_id', '2018-04-07 15:50:13.411222 1906'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '31269'), ('message_id', '2018-04-07 15:50:13.411222 1906'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '31294'), ('function', 'dequeue_task'), ('message_id', '31294'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '31294'), ('message_id', '2018-04-07 15:50:13.503411 1915'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '31294'), ('message_id', '2018-04-07 15:50:13.503411 1915'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 561 bytes
+    Message:
+    OrderedDict([('correlation_id', '31872'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 90, 'function': 'tasks.xsum', 'args': [[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:12.933953 1857', 'message_type': 'result', 'task_id': '2018-04-07 15:50:12.933953 1857', 'correlation_id': '2018-04-07 15:50:12.933953 1857', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '31872'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+
+
+
+
+    90
+
+
+
+### Map & Starmap
+Celery [Map & Starmap](http://docs.celeryproject.org/en/latest/userguide/canvas.html#map-starmap) 的主要作用和 Python 中的`map`指令一樣，會對一個 list 中的每個 element 做指定的運算，例如下例會分別對`range(10)`,`range(100)`做`sum`運算：
+```
+>>> ~xsum.map([range(10), range(100)])
+[45, 4950]
+```
+我們可以在 ESP32 cluster 上面也做同樣的事情，但是須先使用`list()`對`range`物件做展開：
+
+
+```python
+gp = tasks.xsum.map([list(range(10)), list(range(100))])
+gp.get()
+```
+
+    
+    Sending 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:13.924441 1966'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:13.924441 1966'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:13.924441 1966'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:13.924441 1966'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '32270'), ('function', 'dequeue_task'), ('message_id', '32270'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '32270'), ('message_id', '2018-04-07 15:50:14.296510 1998'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:13.924441 1965', 'function': 'tasks.xsum', 'args': ([0, 1, 2, 3, 4, 5, 6, 7, 8, 9],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:13.924441 1965', 'task_id': '2018-04-07 15:50:13.924441 1965'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 520 bytes
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '32323'), ('function', 'dequeue_task'), ('message_id', '32323'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '32323'), ('message_id', '2018-04-07 15:50:14.332537 2001'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:13.939481 1968', 'function': 'tasks.xsum', 'args': ([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:13.939481 1968', 'task_id': '2018-04-07 15:50:13.939481 1968'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 880 bytes
+    Message:
+    OrderedDict([('correlation_id', '32323'), ('message_id', '2018-04-07 15:50:14.332537 2001'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:13.939481 1968', 'function': 'tasks.xsum', 'args': ([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:13.939481 1968', 'task_id': '2018-04-07 15:50:13.939481 1968'}, 0)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '32270'), ('message_id', '2018-04-07 15:50:14.296510 1998'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:13.924441 1965', 'function': 'tasks.xsum', 'args': ([0, 1, 2, 3, 4, 5, 6, 7, 8, 9],), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:13.924441 1965', 'task_id': '2018-04-07 15:50:13.924441 1965'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '32250'), ('function', 'dequeue_task'), ('message_id', '32250'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '32250'), ('message_id', '2018-04-07 15:50:14.455300 2010'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '32250'), ('message_id', '2018-04-07 15:50:14.455300 2010'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 556 bytes
+    Message:
+    OrderedDict([('correlation_id', '32696'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 45, 'function': 'tasks.xsum', 'args': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:13.924441 1965', 'message_type': 'result', 'task_id': '2018-04-07 15:50:13.924441 1965', 'correlation_id': '2018-04-07 15:50:13.924441 1965', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '32696'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '32805'), ('function', 'dequeue_task'), ('message_id', '32805'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '32805'), ('message_id', '2018-04-07 15:50:14.924986 2051'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    Data received: 918 bytes
+    Message:
+    OrderedDict([('correlation_id', '32884'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 4950, 'function': 'tasks.xsum', 'args': [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:13.939481 1968', 'message_type': 'result', 'task_id': '2018-04-07 15:50:13.939481 1968', 'correlation_id': '2018-04-07 15:50:13.939481 1968', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '32884'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '32805'), ('message_id', '2018-04-07 15:50:14.924986 2051'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+
+
+
+
+    [45, 4950]
+
+
+
+`starmap`的作用和`map`指令一樣，會對一個 list 中的每個 element 做指定的運算，只是會先做 star展開，將一個`list`展開成為 positional arguments：
+```
+>>> ~add.starmap(zip(range(10), range(10)))
+[0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+```
+我們可以在 ESP32 cluster 上面也做同樣的事情，但是須先使用`list()`對`zip`物件做展開：
+
+
+```python
+gp = tasks.add.starmap(list(zip(range(10), range(10))))
+gp.get()
+```
+
+    
+    Sending 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:14.983101 2058'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:14.983101 2058'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    Data received: 261 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:14.983101 2058'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:14.983101 2058'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '33356'), ('function', 'dequeue_task'), ('message_id', '33356'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '33356'), ('message_id', '2018-04-07 15:50:15.328919 2101'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:14.983101 2057', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:14.983101 2057', 'task_id': '2018-04-07 15:50:14.983101 2057'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '33356'), ('message_id', '2018-04-07 15:50:15.328919 2101'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:14.983101 2057', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:14.983101 2057', 'task_id': '2018-04-07 15:50:14.983101 2057'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '33282'), ('function', 'dequeue_task'), ('message_id', '33282'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '33282'), ('message_id', '2018-04-07 15:50:15.404420 2108'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2061', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2061', 'task_id': '2018-04-07 15:50:15.016229 2061'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '33282'), ('message_id', '2018-04-07 15:50:15.404420 2108'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2061', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2061', 'task_id': '2018-04-07 15:50:15.016229 2061'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '33534'), ('function', 'dequeue_task'), ('message_id', '33534'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '33534'), ('message_id', '2018-04-07 15:50:15.570363 2124'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2062', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2062', 'task_id': '2018-04-07 15:50:15.016229 2062'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '33534'), ('message_id', '2018-04-07 15:50:15.570363 2124'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2062', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2062', 'task_id': '2018-04-07 15:50:15.016229 2062'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '33837'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 0, 'function': 'tasks.add', 'args': [0, 0], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:14.983101 2057', 'message_type': 'result', 'task_id': '2018-04-07 15:50:14.983101 2057', 'correlation_id': '2018-04-07 15:50:14.983101 2057', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '33837'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '33942'), ('function', 'dequeue_task'), ('message_id', '33942'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '33942'), ('message_id', '2018-04-07 15:50:16.021131 2173'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2063', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2063', 'task_id': '2018-04-07 15:50:15.016229 2063'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '33942'), ('message_id', '2018-04-07 15:50:16.021131 2173'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2063', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2063', 'task_id': '2018-04-07 15:50:15.016229 2063'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '33819'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 2, 'function': 'tasks.add', 'args': [1, 1], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2061', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2061', 'correlation_id': '2018-04-07 15:50:15.016229 2061', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '33819'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '33925'), ('function', 'dequeue_task'), ('message_id', '33925'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '33925'), ('message_id', '2018-04-07 15:50:16.254645 2194'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2064', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2064', 'task_id': '2018-04-07 15:50:15.016229 2064'}, 5)), ('sender', 'Client_366')])
+    
+    Data received: 528 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '33965'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 4, 'function': 'tasks.add', 'args': [2, 2], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2062', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2062', 'correlation_id': '2018-04-07 15:50:15.016229 2062', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '33965'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '33925'), ('message_id', '2018-04-07 15:50:16.254645 2194'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2064', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2064', 'task_id': '2018-04-07 15:50:15.016229 2064'}, 5)), ('sender', 'Client_366')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '34072'), ('function', 'dequeue_task'), ('message_id', '34072'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '34072'), ('message_id', '2018-04-07 15:50:16.525536 2217'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2065', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2065', 'task_id': '2018-04-07 15:50:15.016229 2065'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '34072'), ('message_id', '2018-04-07 15:50:16.525536 2217'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2065', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2065', 'task_id': '2018-04-07 15:50:15.016229 2065'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '34621'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 6, 'function': 'tasks.add', 'args': [3, 3], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2063', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2063', 'correlation_id': '2018-04-07 15:50:15.016229 2063', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '34621'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '34727'), ('function', 'dequeue_task'), ('message_id', '34727'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '34727'), ('message_id', '2018-04-07 15:50:16.854437 2250'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2066', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2066', 'task_id': '2018-04-07 15:50:15.016229 2066'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '34727'), ('message_id', '2018-04-07 15:50:16.854437 2250'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2066', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2066', 'task_id': '2018-04-07 15:50:15.016229 2066'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '34981'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 8, 'function': 'tasks.add', 'args': [4, 4], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2064', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2064', 'correlation_id': '2018-04-07 15:50:15.016229 2064', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '34981'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '35005'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 10, 'function': 'tasks.add', 'args': [5, 5], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2065', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2065', 'correlation_id': '2018-04-07 15:50:15.016229 2065', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '35005'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '35085'), ('function', 'dequeue_task'), ('message_id', '35085'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '35085'), ('message_id', '2018-04-07 15:50:17.355831 2300'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2067', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2067', 'task_id': '2018-04-07 15:50:15.016229 2067'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '35085'), ('message_id', '2018-04-07 15:50:17.355831 2300'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2067', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2067', 'task_id': '2018-04-07 15:50:15.016229 2067'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '35110'), ('function', 'dequeue_task'), ('message_id', '35110'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '35110'), ('message_id', '2018-04-07 15:50:17.449521 2309'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2068', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2068', 'task_id': '2018-04-07 15:50:15.016229 2068'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '35110'), ('message_id', '2018-04-07 15:50:17.449521 2309'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2068', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2068', 'task_id': '2018-04-07 15:50:15.016229 2068'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '35290'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 12, 'function': 'tasks.add', 'args': [6, 6], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2066', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2066', 'correlation_id': '2018-04-07 15:50:15.016229 2066', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '35290'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '35394'), ('function', 'dequeue_task'), ('message_id', '35394'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '35394'), ('message_id', '2018-04-07 15:50:17.582571 2324'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2069', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2069', 'task_id': '2018-04-07 15:50:15.016229 2069'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 493 bytes
+    Message:
+    OrderedDict([('correlation_id', '35394'), ('message_id', '2018-04-07 15:50:17.582571 2324'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:15.016229 2069', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:15.016229 2069', 'task_id': '2018-04-07 15:50:15.016229 2069'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '35834'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 14, 'function': 'tasks.add', 'args': [7, 7], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2067', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2067', 'correlation_id': '2018-04-07 15:50:15.016229 2067', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '35834'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '35859'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 16, 'function': 'tasks.add', 'args': [8, 8], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2068', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2068', 'correlation_id': '2018-04-07 15:50:15.016229 2068', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '35859'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '35938'), ('function', 'dequeue_task'), ('message_id', '35938'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '35938'), ('message_id', '2018-04-07 15:50:18.258030 2386'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '35938'), ('message_id', '2018-04-07 15:50:18.258030 2386'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '35963'), ('function', 'dequeue_task'), ('message_id', '35963'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '35963'), ('message_id', '2018-04-07 15:50:18.371341 2395'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '35963'), ('message_id', '2018-04-07 15:50:18.371341 2395'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '36178'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 18, 'function': 'tasks.add', 'args': [9, 9], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:15.016229 2069', 'message_type': 'result', 'task_id': '2018-04-07 15:50:15.016229 2069', 'correlation_id': '2018-04-07 15:50:15.016229 2069', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '36178'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+
+
+
+
+    [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
+
+
+
+### Chunks
+Celery [Chunks](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chunks) 的主要作用是把一大串的資料切成指定的份數，分發給遠端的 workers 協處處理，例如：
+```
+>>> res = add.chunks(zip(range(100), range(100)), 10)()
+>>> res.get()
+[[0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
+ [20, 22, 24, 26, 28, 30, 32, 34, 36, 38],
+ [40, 42, 44, 46, 48, 50, 52, 54, 56, 58],
+ [60, 62, 64, 66, 68, 70, 72, 74, 76, 78],
+ [80, 82, 84, 86, 88, 90, 92, 94, 96, 98],
+ [100, 102, 104, 106, 108, 110, 112, 114, 116, 118],
+ [120, 122, 124, 126, 128, 130, 132, 134, 136, 138],
+ [140, 142, 144, 146, 148, 150, 152, 154, 156, 158],
+ [160, 162, 164, 166, 168, 170, 172, 174, 176, 178],
+ [180, 182, 184, 186, 188, 190, 192, 194, 196, 198]]
+```
+我們可以在 ESP32 cluster 上面也做同樣的事情，但是須先使用`list()`對`zip`物件做展開：
+
+
+```python
+ck = tasks.add.chunks(list(zip(range(100), range(100))), 10)
+async_result = ck()
+async_result.get()
+```
+
+    
+    Sending 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:19.905739 2557'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:19.905739 2557'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    Data received: 261 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:19.905739 2557'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:19.905739 2557'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '38199'), ('function', 'dequeue_task'), ('message_id', '38199'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '38199'), ('message_id', '2018-04-07 15:50:20.284531 2690'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.905739 2556', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.905739 2556', 'task_id': '2018-04-07 15:50:19.905739 2556'}, 99)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '38199'), ('message_id', '2018-04-07 15:50:20.284531 2690'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.905739 2556', 'function': 'tasks.add', 'args': (0, 0), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.905739 2556', 'task_id': '2018-04-07 15:50:19.905739 2556'}, 99)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '38223'), ('function', 'dequeue_task'), ('message_id', '38223'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '38223'), ('message_id', '2018-04-07 15:50:20.323635 2693'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2560', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2560', 'task_id': '2018-04-07 15:50:19.942837 2560'}, 98)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '38223'), ('message_id', '2018-04-07 15:50:20.323635 2693'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2560', 'function': 'tasks.add', 'args': (1, 1), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2560', 'task_id': '2018-04-07 15:50:19.942837 2560'}, 98)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '38275'), ('function', 'dequeue_task'), ('message_id', '38275'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '38275'), ('message_id', '2018-04-07 15:50:20.361737 2696'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2561', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2561', 'task_id': '2018-04-07 15:50:19.942837 2561'}, 97)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '38275'), ('message_id', '2018-04-07 15:50:20.361737 2696'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2561', 'function': 'tasks.add', 'args': (2, 2), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2561', 'task_id': '2018-04-07 15:50:19.942837 2561'}, 97)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '38901'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 4, 'function': 'tasks.add', 'args': [2, 2], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2561', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2561', 'correlation_id': '2018-04-07 15:50:19.942837 2561', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '38901'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '38824'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 0, 'function': 'tasks.add', 'args': [0, 0], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.905739 2556', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.905739 2556', 'correlation_id': '2018-04-07 15:50:19.905739 2556', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '38824'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '38849'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 2, 'function': 'tasks.add', 'args': [1, 1], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2560', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2560', 'correlation_id': '2018-04-07 15:50:19.942837 2560', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '38849'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '39007'), ('function', 'dequeue_task'), ('message_id', '39007'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '39007'), ('message_id', '2018-04-07 15:50:21.260351 2783'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2562', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2562', 'task_id': '2018-04-07 15:50:19.942837 2562'}, 96)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '39007'), ('message_id', '2018-04-07 15:50:21.260351 2783'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2562', 'function': 'tasks.add', 'args': (3, 3), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2562', 'task_id': '2018-04-07 15:50:19.942837 2562'}, 96)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '38928'), ('function', 'dequeue_task'), ('message_id', '38928'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '38928'), ('message_id', '2018-04-07 15:50:21.345575 2791'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2563', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2563', 'task_id': '2018-04-07 15:50:19.942837 2563'}, 95)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '38928'), ('message_id', '2018-04-07 15:50:21.345575 2791'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2563', 'function': 'tasks.add', 'args': (4, 4), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2563', 'task_id': '2018-04-07 15:50:19.942837 2563'}, 95)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '38954'), ('function', 'dequeue_task'), ('message_id', '38954'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '38954'), ('message_id', '2018-04-07 15:50:21.468937 2803'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2564', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2564', 'task_id': '2018-04-07 15:50:19.942837 2564'}, 94)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '38954'), ('message_id', '2018-04-07 15:50:21.468937 2803'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2564', 'function': 'tasks.add', 'args': (5, 5), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2564', 'task_id': '2018-04-07 15:50:19.942837 2564'}, 94)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '39745'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 8, 'function': 'tasks.add', 'args': [4, 4], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2563', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2563', 'correlation_id': '2018-04-07 15:50:19.942837 2563', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '39745'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '39848'), ('function', 'dequeue_task'), ('message_id', '39848'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '39848'), ('message_id', '2018-04-07 15:50:22.361483 2903'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2565', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2565', 'task_id': '2018-04-07 15:50:19.942837 2565'}, 93)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '39848'), ('message_id', '2018-04-07 15:50:22.361483 2903'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2565', 'function': 'tasks.add', 'args': (6, 6), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2565', 'task_id': '2018-04-07 15:50:19.942837 2565'}, 93)), ('sender', 'Client_366')])
+    
+    
+    Data received: 528 bytes
+    Message:
+    OrderedDict([('correlation_id', '39821'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 6, 'function': 'tasks.add', 'args': [3, 3], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2562', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2562', 'correlation_id': '2018-04-07 15:50:19.942837 2562', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '39821'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '39925'), ('function', 'dequeue_task'), ('message_id', '39925'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '39925'), ('message_id', '2018-04-07 15:50:22.744501 2936'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2566', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2566', 'task_id': '2018-04-07 15:50:19.942837 2566'}, 92)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '39925'), ('message_id', '2018-04-07 15:50:22.744501 2936'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2566', 'function': 'tasks.add', 'args': (7, 7), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2566', 'task_id': '2018-04-07 15:50:19.942837 2566'}, 92)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '40388'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 10, 'function': 'tasks.add', 'args': [5, 5], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2564', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2564', 'correlation_id': '2018-04-07 15:50:19.942837 2564', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '40388'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '40494'), ('function', 'dequeue_task'), ('message_id', '40494'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '40494'), ('message_id', '2018-04-07 15:50:23.058336 2962'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2567', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2567', 'task_id': '2018-04-07 15:50:19.942837 2567'}, 91)), ('sender', 'Client_366')])
+    
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '40494'), ('message_id', '2018-04-07 15:50:23.058336 2962'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2567', 'function': 'tasks.add', 'args': (8, 8), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2567', 'task_id': '2018-04-07 15:50:19.942837 2567'}, 91)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '40945'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 12, 'function': 'tasks.add', 'args': [6, 6], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2565', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2565', 'correlation_id': '2018-04-07 15:50:19.942837 2565', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '40945'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '41048'), ('function', 'dequeue_task'), ('message_id', '41048'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '41048'), ('message_id', '2018-04-07 15:50:23.310043 2986'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2568', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2568', 'task_id': '2018-04-07 15:50:19.942837 2568'}, 90)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    
+    Sending 494 bytes
+    Message:
+    OrderedDict([('correlation_id', '41048'), ('message_id', '2018-04-07 15:50:23.310043 2986'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2568', 'function': 'tasks.add', 'args': (9, 9), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2568', 'task_id': '2018-04-07 15:50:19.942837 2568'}, 90)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '41180'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 14, 'function': 'tasks.add', 'args': [7, 7], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2566', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2566', 'correlation_id': '2018-04-07 15:50:19.942837 2566', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '41180'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '41285'), ('function', 'dequeue_task'), ('message_id', '41285'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '41285'), ('message_id', '2018-04-07 15:50:23.601151 3019'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2569', 'function': 'tasks.add', 'args': (10, 10), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2569', 'task_id': '2018-04-07 15:50:19.942837 2569'}, 89)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 529 bytesMessage:
+    OrderedDict([('correlation_id', '41285'), ('message_id', '2018-04-07 15:50:23.601151 3019'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2569', 'function': 'tasks.add', 'args': (10, 10), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2569', 'task_id': '2018-04-07 15:50:19.942837 2569'}, 89)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '41609'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 16, 'function': 'tasks.add', 'args': [8, 8], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2567', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2567', 'correlation_id': '2018-04-07 15:50:19.942837 2567', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '41609'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '41713'), ('function', 'dequeue_task'), ('message_id', '41713'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '41713'), ('message_id', '2018-04-07 15:50:23.762518 3034'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2570', 'function': 'tasks.add', 'args': (11, 11), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2570', 'task_id': '2018-04-07 15:50:19.942837 2570'}, 88)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '41713'), ('message_id', '2018-04-07 15:50:23.762518 3034'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2570', 'function': 'tasks.add', 'args': (11, 11), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2570', 'task_id': '2018-04-07 15:50:19.942837 2570'}, 88)), ('sender', 'Client_366')])
+    
+    
+    Data received: 529 bytes
+    Message:
+    OrderedDict([('correlation_id', '41972'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 18, 'function': 'tasks.add', 'args': [9, 9], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2568', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2568', 'correlation_id': '2018-04-07 15:50:19.942837 2568', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '41972'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '42076'), ('function', 'dequeue_task'), ('message_id', '42076'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '42076'), ('message_id', '2018-04-07 15:50:24.222908 3086'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2571', 'function': 'tasks.add', 'args': (12, 12), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2571', 'task_id': '2018-04-07 15:50:19.942837 2571'}, 87)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '42076'), ('message_id', '2018-04-07 15:50:24.222908 3086'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2571', 'function': 'tasks.add', 'args': (12, 12), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2571', 'task_id': '2018-04-07 15:50:19.942837 2571'}, 87)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '42048'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 20, 'function': 'tasks.add', 'args': [10, 10], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2569', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2569', 'correlation_id': '2018-04-07 15:50:19.942837 2569', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '42048'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '42152'), ('function', 'dequeue_task'), ('message_id', '42152'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '42152'), ('message_id', '2018-04-07 15:50:24.627671 3132'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2572', 'function': 'tasks.add', 'args': (13, 13), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2572', 'task_id': '2018-04-07 15:50:19.942837 2572'}, 86)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '42152'), ('message_id', '2018-04-07 15:50:24.627671 3132'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2572', 'function': 'tasks.add', 'args': (13, 13), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2572', 'task_id': '2018-04-07 15:50:19.942837 2572'}, 86)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '42169'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 22, 'function': 'tasks.add', 'args': [11, 11], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2570', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2570', 'correlation_id': '2018-04-07 15:50:19.942837 2570', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '42169'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '42274'), ('function', 'dequeue_task'), ('message_id', '42274'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '42274'), ('message_id', '2018-04-07 15:50:25.067699 3175'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2573', 'function': 'tasks.add', 'args': (14, 14), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2573', 'task_id': '2018-04-07 15:50:19.942837 2573'}, 85)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '42274'), ('message_id', '2018-04-07 15:50:25.067699 3175'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2573', 'function': 'tasks.add', 'args': (14, 14), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2573', 'task_id': '2018-04-07 15:50:19.942837 2573'}, 85)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '42948'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 24, 'function': 'tasks.add', 'args': [12, 12], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2571', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2571', 'correlation_id': '2018-04-07 15:50:19.942837 2571', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '42948'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '43053'), ('function', 'dequeue_task'), ('message_id', '43053'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '43053'), ('message_id', '2018-04-07 15:50:25.267188 3194'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2574', 'function': 'tasks.add', 'args': (15, 15), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2574', 'task_id': '2018-04-07 15:50:19.942837 2574'}, 84)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '43053'), ('message_id', '2018-04-07 15:50:25.267188 3194'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2574', 'function': 'tasks.add', 'args': (15, 15), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2574', 'task_id': '2018-04-07 15:50:19.942837 2574'}, 84)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '43342'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 26, 'function': 'tasks.add', 'args': [13, 13], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2572', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2572', 'correlation_id': '2018-04-07 15:50:19.942837 2572', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '43342'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '43447'), ('function', 'dequeue_task'), ('message_id', '43447'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '43447'), ('message_id', '2018-04-07 15:50:25.526025 3221'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2575', 'function': 'tasks.add', 'args': (16, 16), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2575', 'task_id': '2018-04-07 15:50:19.942837 2575'}, 83)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '43447'), ('message_id', '2018-04-07 15:50:25.526025 3221'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2575', 'function': 'tasks.add', 'args': (16, 16), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2575', 'task_id': '2018-04-07 15:50:19.942837 2575'}, 83)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '43451'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 28, 'function': 'tasks.add', 'args': [14, 14], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2573', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2573', 'correlation_id': '2018-04-07 15:50:19.942837 2573', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '43451'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '43556'), ('function', 'dequeue_task'), ('message_id', '43556'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '43556'), ('message_id', '2018-04-07 15:50:25.745505 3244'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2576', 'function': 'tasks.add', 'args': (17, 17), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2576', 'task_id': '2018-04-07 15:50:19.942837 2576'}, 82)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '43556'), ('message_id', '2018-04-07 15:50:25.745505 3244'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2576', 'function': 'tasks.add', 'args': (17, 17), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2576', 'task_id': '2018-04-07 15:50:19.942837 2576'}, 82)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '43615'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 30, 'function': 'tasks.add', 'args': [15, 15], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2574', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2574', 'correlation_id': '2018-04-07 15:50:19.942837 2574', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '43615'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '43719'), ('function', 'dequeue_task'), ('message_id', '43719'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '43719'), ('message_id', '2018-04-07 15:50:26.322728 3310'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2577', 'function': 'tasks.add', 'args': (18, 18), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2577', 'task_id': '2018-04-07 15:50:19.942837 2577'}, 81)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '43719'), ('message_id', '2018-04-07 15:50:26.322728 3310'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2577', 'function': 'tasks.add', 'args': (18, 18), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2577', 'task_id': '2018-04-07 15:50:19.942837 2577'}, 81)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '44330'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 34, 'function': 'tasks.add', 'args': [17, 17], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2576', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2576', 'correlation_id': '2018-04-07 15:50:19.942837 2576', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '44330'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '44437'), ('function', 'dequeue_task'), ('message_id', '44437'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '44437'), ('message_id', '2018-04-07 15:50:26.542157 3333'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2578', 'function': 'tasks.add', 'args': (19, 19), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2578', 'task_id': '2018-04-07 15:50:19.942837 2578'}, 80)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '44437'), ('message_id', '2018-04-07 15:50:26.542157 3333'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2578', 'function': 'tasks.add', 'args': (19, 19), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2578', 'task_id': '2018-04-07 15:50:19.942837 2578'}, 80)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '44701'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 36, 'function': 'tasks.add', 'args': [18, 18], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2577', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2577', 'correlation_id': '2018-04-07 15:50:19.942837 2577', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '44701'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '44806'), ('function', 'dequeue_task'), ('message_id', '44806'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '44806'), ('message_id', '2018-04-07 15:50:26.886106 3373'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2579', 'function': 'tasks.add', 'args': (20, 20), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2579', 'task_id': '2018-04-07 15:50:19.942837 2579'}, 79)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '44806'), ('message_id', '2018-04-07 15:50:26.886106 3373'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2579', 'function': 'tasks.add', 'args': (20, 20), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2579', 'task_id': '2018-04-07 15:50:19.942837 2579'}, 79)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '44928'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 38, 'function': 'tasks.add', 'args': [19, 19], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2578', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2578', 'correlation_id': '2018-04-07 15:50:19.942837 2578', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '44928'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '45033'), ('function', 'dequeue_task'), ('message_id', '45033'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '45033'), ('message_id', '2018-04-07 15:50:27.062193 3390'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2580', 'function': 'tasks.add', 'args': (21, 21), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2580', 'task_id': '2018-04-07 15:50:19.942837 2580'}, 78)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '45033'), ('message_id', '2018-04-07 15:50:27.062193 3390'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2580', 'function': 'tasks.add', 'args': (21, 21), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2580', 'task_id': '2018-04-07 15:50:19.942837 2580'}, 78)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '45300'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 32, 'function': 'tasks.add', 'args': [16, 16], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2575', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2575', 'correlation_id': '2018-04-07 15:50:19.942837 2575', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '45300'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '45405'), ('function', 'dequeue_task'), ('message_id', '45405'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '45405'), ('message_id', '2018-04-07 15:50:27.515159 3444'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2581', 'function': 'tasks.add', 'args': (22, 22), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2581', 'task_id': '2018-04-07 15:50:19.942837 2581'}, 77)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '45405'), ('message_id', '2018-04-07 15:50:27.515159 3444'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2581', 'function': 'tasks.add', 'args': (22, 22), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2581', 'task_id': '2018-04-07 15:50:19.942837 2581'}, 77)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '45349'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 40, 'function': 'tasks.add', 'args': [20, 20], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2579', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2579', 'correlation_id': '2018-04-07 15:50:19.942837 2579', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '45349'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '45453'), ('function', 'dequeue_task'), ('message_id', '45453'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '45453'), ('message_id', '2018-04-07 15:50:27.741477 3465'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2582', 'function': 'tasks.add', 'args': (23, 23), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2582', 'task_id': '2018-04-07 15:50:19.942837 2582'}, 76)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '45449'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 42, 'function': 'tasks.add', 'args': [21, 21], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2580', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2580', 'correlation_id': '2018-04-07 15:50:19.942837 2580', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '45449'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    Message:
+    OrderedDict([('correlation_id', '45453'), ('message_id', '2018-04-07 15:50:27.741477 3465'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2582', 'function': 'tasks.add', 'args': (23, 23), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2582', 'task_id': '2018-04-07 15:50:19.942837 2582'}, 76)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '45554'), ('function', 'dequeue_task'), ('message_id', '45554'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '45554'), ('message_id', '2018-04-07 15:50:27.881850 3475'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2583', 'function': 'tasks.add', 'args': (24, 24), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2583', 'task_id': '2018-04-07 15:50:19.942837 2583'}, 75)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '45554'), ('message_id', '2018-04-07 15:50:27.881850 3475'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2583', 'function': 'tasks.add', 'args': (24, 24), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2583', 'task_id': '2018-04-07 15:50:19.942837 2583'}, 75)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '46100'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 44, 'function': 'tasks.add', 'args': [22, 22], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2581', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2581', 'correlation_id': '2018-04-07 15:50:19.942837 2581', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '46100'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '46205'), ('function', 'dequeue_task'), ('message_id', '46205'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '46205'), ('message_id', '2018-04-07 15:50:28.239229 3510'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2584', 'function': 'tasks.add', 'args': (25, 25), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2584', 'task_id': '2018-04-07 15:50:19.942837 2584'}, 74)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '46205'), ('message_id', '2018-04-07 15:50:28.239229 3510'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2584', 'function': 'tasks.add', 'args': (25, 25), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2584', 'task_id': '2018-04-07 15:50:19.942837 2584'}, 74)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '46106'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 46, 'function': 'tasks.add', 'args': [23, 23], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2582', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2582', 'correlation_id': '2018-04-07 15:50:19.942837 2582', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '46106'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '46213'), ('function', 'dequeue_task'), ('message_id', '46213'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '46213'), ('message_id', '2018-04-07 15:50:28.403707 3525'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2585', 'function': 'tasks.add', 'args': (26, 26), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2585', 'task_id': '2018-04-07 15:50:19.942837 2585'}, 73)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '46213'), ('message_id', '2018-04-07 15:50:28.403707 3525'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2585', 'function': 'tasks.add', 'args': (26, 26), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2585', 'task_id': '2018-04-07 15:50:19.942837 2585'}, 73)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '46349'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 48, 'function': 'tasks.add', 'args': [24, 24], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2583', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2583', 'correlation_id': '2018-04-07 15:50:19.942837 2583', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '46349'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '46454'), ('function', 'dequeue_task'), ('message_id', '46454'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '46454'), ('message_id', '2018-04-07 15:50:28.636285 3547'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2586', 'function': 'tasks.add', 'args': (27, 27), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2586', 'task_id': '2018-04-07 15:50:19.942837 2586'}, 72)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '46454'), ('message_id', '2018-04-07 15:50:28.636285 3547'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2586', 'function': 'tasks.add', 'args': (27, 27), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2586', 'task_id': '2018-04-07 15:50:19.942837 2586'}, 72)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '46785'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 52, 'function': 'tasks.add', 'args': [26, 26], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2585', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2585', 'correlation_id': '2018-04-07 15:50:19.942837 2585', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '46785'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '46890'), ('function', 'dequeue_task'), ('message_id', '46890'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '46890'), ('message_id', '2018-04-07 15:50:29.009757 3587'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2587', 'function': 'tasks.add', 'args': (28, 28), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2587', 'task_id': '2018-04-07 15:50:19.942837 2587'}, 71)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '46890'), ('message_id', '2018-04-07 15:50:29.009757 3587'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2587', 'function': 'tasks.add', 'args': (28, 28), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2587', 'task_id': '2018-04-07 15:50:19.942837 2587'}, 71)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '47062'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 54, 'function': 'tasks.add', 'args': [27, 27], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2586', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2586', 'correlation_id': '2018-04-07 15:50:19.942837 2586', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '47062'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '47168'), ('function', 'dequeue_task'), ('message_id', '47168'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '47168'), ('message_id', '2018-04-07 15:50:29.451812 3629'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2588', 'function': 'tasks.add', 'args': (29, 29), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2588', 'task_id': '2018-04-07 15:50:19.942837 2588'}, 70)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '47168'), ('message_id', '2018-04-07 15:50:29.451812 3629'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2588', 'function': 'tasks.add', 'args': (29, 29), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2588', 'task_id': '2018-04-07 15:50:19.942837 2588'}, 70)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '47463'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 56, 'function': 'tasks.add', 'args': [28, 28], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2587', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2587', 'correlation_id': '2018-04-07 15:50:19.942837 2587', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '47463'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '47568'), ('function', 'dequeue_task'), ('message_id', '47568'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '47568'), ('message_id', '2018-04-07 15:50:29.836843 3661'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2589', 'function': 'tasks.add', 'args': (30, 30), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2589', 'task_id': '2018-04-07 15:50:19.942837 2589'}, 69)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '47179'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 50, 'function': 'tasks.add', 'args': [25, 25], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2584', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2584', 'correlation_id': '2018-04-07 15:50:19.942837 2584', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '47179'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    Message:
+    OrderedDict([('correlation_id', '47568'), ('message_id', '2018-04-07 15:50:29.836843 3661'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2589', 'function': 'tasks.add', 'args': (30, 30), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2589', 'task_id': '2018-04-07 15:50:19.942837 2589'}, 69)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '47283'), ('function', 'dequeue_task'), ('message_id', '47283'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '47283'), ('message_id', '2018-04-07 15:50:29.964166 3670'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2590', 'function': 'tasks.add', 'args': (31, 31), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2590', 'task_id': '2018-04-07 15:50:19.942837 2590'}, 68)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Data received: 531 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '47283'), ('message_id', '2018-04-07 15:50:29.964166 3670'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2590', 'function': 'tasks.add', 'args': (31, 31), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2590', 'task_id': '2018-04-07 15:50:19.942837 2590'}, 68)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '47847'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 58, 'function': 'tasks.add', 'args': [29, 29], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2588', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2588', 'correlation_id': '2018-04-07 15:50:19.942837 2588', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '47847'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '47952'), ('function', 'dequeue_task'), ('message_id', '47952'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '47952'), ('message_id', '2018-04-07 15:50:30.170688 3690'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2591', 'function': 'tasks.add', 'args': (32, 32), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2591', 'task_id': '2018-04-07 15:50:19.942837 2591'}, 67)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '47952'), ('message_id', '2018-04-07 15:50:30.170688 3690'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2591', 'function': 'tasks.add', 'args': (32, 32), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2591', 'task_id': '2018-04-07 15:50:19.942837 2591'}, 67)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '48218'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 60, 'function': 'tasks.add', 'args': [30, 30], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2589', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2589', 'correlation_id': '2018-04-07 15:50:19.942837 2589', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '48218'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '48322'), ('function', 'dequeue_task'), ('message_id', '48322'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '48322'), ('message_id', '2018-04-07 15:50:30.333584 3708'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2592', 'function': 'tasks.add', 'args': (33, 33), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2592', 'task_id': '2018-04-07 15:50:19.942837 2592'}, 66)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '48322'), ('message_id', '2018-04-07 15:50:30.333584 3708'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2592', 'function': 'tasks.add', 'args': (33, 33), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2592', 'task_id': '2018-04-07 15:50:19.942837 2592'}, 66)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '48567'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 64, 'function': 'tasks.add', 'args': [32, 32], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2591', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2591', 'correlation_id': '2018-04-07 15:50:19.942837 2591', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '48567'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '48672'), ('function', 'dequeue_task'), ('message_id', '48672'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '48672'), ('message_id', '2018-04-07 15:50:30.726358 3746'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2593', 'function': 'tasks.add', 'args': (34, 34), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2593', 'task_id': '2018-04-07 15:50:19.942837 2593'}, 65)), ('sender', 'Client_366')])
+    
+    Data received: 531 bytes
+    
+    Sending 496 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '48687'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 66, 'function': 'tasks.add', 'args': [33, 33], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2592', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2592', 'correlation_id': '2018-04-07 15:50:19.942837 2592', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '48687'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    Message:
+    OrderedDict([('correlation_id', '48672'), ('message_id', '2018-04-07 15:50:30.726358 3746'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2593', 'function': 'tasks.add', 'args': (34, 34), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2593', 'task_id': '2018-04-07 15:50:19.942837 2593'}, 65)), ('sender', 'Client_366')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '48792'), ('function', 'dequeue_task'), ('message_id', '48792'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '48792'), ('message_id', '2018-04-07 15:50:30.824193 3756'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2594', 'function': 'tasks.add', 'args': (35, 35), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2594', 'task_id': '2018-04-07 15:50:19.942837 2594'}, 64)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '48792'), ('message_id', '2018-04-07 15:50:30.824193 3756'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2594', 'function': 'tasks.add', 'args': (35, 35), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2594', 'task_id': '2018-04-07 15:50:19.942837 2594'}, 64)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '48618'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 62, 'function': 'tasks.add', 'args': [31, 31], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2590', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2590', 'correlation_id': '2018-04-07 15:50:19.942837 2590', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '48618'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '48723'), ('function', 'dequeue_task'), ('message_id', '48723'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '48723'), ('message_id', '2018-04-07 15:50:31.133828 3787'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2595', 'function': 'tasks.add', 'args': (36, 36), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2595', 'task_id': '2018-04-07 15:50:19.942837 2595'}, 63)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '48723'), ('message_id', '2018-04-07 15:50:31.133828 3787'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2595', 'function': 'tasks.add', 'args': (36, 36), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2595', 'task_id': '2018-04-07 15:50:19.942837 2595'}, 63)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '49247'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 68, 'function': 'tasks.add', 'args': [34, 34], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2593', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2593', 'correlation_id': '2018-04-07 15:50:19.942837 2593', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '49247'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '49244'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 70, 'function': 'tasks.add', 'args': [35, 35], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2594', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2594', 'correlation_id': '2018-04-07 15:50:19.942837 2594', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '49244'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '49349'), ('function', 'dequeue_task'), ('message_id', '49349'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '49349'), ('message_id', '2018-04-07 15:50:31.586366 3827'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2596', 'function': 'tasks.add', 'args': (37, 37), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2596', 'task_id': '2018-04-07 15:50:19.942837 2596'}, 62)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '49349'), ('message_id', '2018-04-07 15:50:31.586366 3827'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2596', 'function': 'tasks.add', 'args': (37, 37), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2596', 'task_id': '2018-04-07 15:50:19.942837 2596'}, 62)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '49352'), ('function', 'dequeue_task'), ('message_id', '49352'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '49352'), ('message_id', '2018-04-07 15:50:31.617449 3829'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2597', 'function': 'tasks.add', 'args': (38, 38), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2597', 'task_id': '2018-04-07 15:50:19.942837 2597'}, 61)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '49352'), ('message_id', '2018-04-07 15:50:31.617449 3829'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2597', 'function': 'tasks.add', 'args': (38, 38), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2597', 'task_id': '2018-04-07 15:50:19.942837 2597'}, 61)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '49579'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 72, 'function': 'tasks.add', 'args': [36, 36], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2595', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2595', 'correlation_id': '2018-04-07 15:50:19.942837 2595', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '49579'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '49684'), ('function', 'dequeue_task'), ('message_id', '49684'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '49684'), ('message_id', '2018-04-07 15:50:31.857129 3852'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2598', 'function': 'tasks.add', 'args': (39, 39), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2598', 'task_id': '2018-04-07 15:50:19.942837 2598'}, 60)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '49684'), ('message_id', '2018-04-07 15:50:31.857129 3852'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2598', 'function': 'tasks.add', 'args': (39, 39), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2598', 'task_id': '2018-04-07 15:50:19.942837 2598'}, 60)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '49987'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 74, 'function': 'tasks.add', 'args': [37, 37], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2596', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2596', 'correlation_id': '2018-04-07 15:50:19.942837 2596', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '49987'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '50094'), ('function', 'dequeue_task'), ('message_id', '50094'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '50094'), ('message_id', '2018-04-07 15:50:32.264861 3894'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2599', 'function': 'tasks.add', 'args': (40, 40), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2599', 'task_id': '2018-04-07 15:50:19.942837 2599'}, 59)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '50094'), ('message_id', '2018-04-07 15:50:32.264861 3894'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2599', 'function': 'tasks.add', 'args': (40, 40), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2599', 'task_id': '2018-04-07 15:50:19.942837 2599'}, 59)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '50090'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 76, 'function': 'tasks.add', 'args': [38, 38], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2597', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2597', 'correlation_id': '2018-04-07 15:50:19.942837 2597', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '50090'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '50195'), ('function', 'dequeue_task'), ('message_id', '50195'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '50195'), ('message_id', '2018-04-07 15:50:32.434311 3909'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2600', 'function': 'tasks.add', 'args': (41, 41), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2600', 'task_id': '2018-04-07 15:50:19.942837 2600'}, 58)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '50195'), ('message_id', '2018-04-07 15:50:32.434311 3909'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2600', 'function': 'tasks.add', 'args': (41, 41), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2600', 'task_id': '2018-04-07 15:50:19.942837 2600'}, 58)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '50300'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 78, 'function': 'tasks.add', 'args': [39, 39], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2598', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2598', 'correlation_id': '2018-04-07 15:50:19.942837 2598', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '50300'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '50405'), ('function', 'dequeue_task'), ('message_id', '50405'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '50405'), ('message_id', '2018-04-07 15:50:32.585398 3923'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2601', 'function': 'tasks.add', 'args': (42, 42), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2601', 'task_id': '2018-04-07 15:50:19.942837 2601'}, 57)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '50405'), ('message_id', '2018-04-07 15:50:32.585398 3923'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2601', 'function': 'tasks.add', 'args': (42, 42), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2601', 'task_id': '2018-04-07 15:50:19.942837 2601'}, 57)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '50663'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 80, 'function': 'tasks.add', 'args': [40, 40], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2599', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2599', 'correlation_id': '2018-04-07 15:50:19.942837 2599', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '50663'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '50768'), ('function', 'dequeue_task'), ('message_id', '50768'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '50768'), ('message_id', '2018-04-07 15:50:32.841026 3950'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2602', 'function': 'tasks.add', 'args': (43, 43), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2602', 'task_id': '2018-04-07 15:50:19.942837 2602'}, 56)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '50768'), ('message_id', '2018-04-07 15:50:32.841026 3950'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2602', 'function': 'tasks.add', 'args': (43, 43), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2602', 'task_id': '2018-04-07 15:50:19.942837 2602'}, 56)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '50910'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 82, 'function': 'tasks.add', 'args': [41, 41], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2600', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2600', 'correlation_id': '2018-04-07 15:50:19.942837 2600', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '50910'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '51015'), ('function', 'dequeue_task'), ('message_id', '51015'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '51015'), ('message_id', '2018-04-07 15:50:33.188177 3977'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2603', 'function': 'tasks.add', 'args': (44, 44), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2603', 'task_id': '2018-04-07 15:50:19.942837 2603'}, 55)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '51015'), ('message_id', '2018-04-07 15:50:33.188177 3977'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2603', 'function': 'tasks.add', 'args': (44, 44), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2603', 'task_id': '2018-04-07 15:50:19.942837 2603'}, 55)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '51054'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 84, 'function': 'tasks.add', 'args': [42, 42], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2601', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2601', 'correlation_id': '2018-04-07 15:50:19.942837 2601', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '51054'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '51161'), ('function', 'dequeue_task'), ('message_id', '51161'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '51161'), ('message_id', '2018-04-07 15:50:33.518052 4006'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2604', 'function': 'tasks.add', 'args': (45, 45), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2604', 'task_id': '2018-04-07 15:50:19.942837 2604'}, 54)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '51161'), ('message_id', '2018-04-07 15:50:33.518052 4006'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2604', 'function': 'tasks.add', 'args': (45, 45), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2604', 'task_id': '2018-04-07 15:50:19.942837 2604'}, 54)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '51469'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 86, 'function': 'tasks.add', 'args': [43, 43], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2602', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2602', 'correlation_id': '2018-04-07 15:50:19.942837 2602', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '51469'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '51574'), ('function', 'dequeue_task'), ('message_id', '51574'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '51574'), ('message_id', '2018-04-07 15:50:33.723225 4027'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2605', 'function': 'tasks.add', 'args': (46, 46), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2605', 'task_id': '2018-04-07 15:50:19.942837 2605'}, 53)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '51574'), ('message_id', '2018-04-07 15:50:33.723225 4027'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2605', 'function': 'tasks.add', 'args': (46, 46), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2605', 'task_id': '2018-04-07 15:50:19.942837 2605'}, 53)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '51767'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 88, 'function': 'tasks.add', 'args': [44, 44], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2603', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2603', 'correlation_id': '2018-04-07 15:50:19.942837 2603', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '51767'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '51874'), ('function', 'dequeue_task'), ('message_id', '51874'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '51874'), ('message_id', '2018-04-07 15:50:34.075174 4062'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2606', 'function': 'tasks.add', 'args': (47, 47), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2606', 'task_id': '2018-04-07 15:50:19.942837 2606'}, 52)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '51987'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 90, 'function': 'tasks.add', 'args': [45, 45], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2604', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2604', 'correlation_id': '2018-04-07 15:50:19.942837 2604', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '51987'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    Sending 496 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '51874'), ('message_id', '2018-04-07 15:50:34.075174 4062'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2606', 'function': 'tasks.add', 'args': (47, 47), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2606', 'task_id': '2018-04-07 15:50:19.942837 2606'}, 52)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '52092'), ('function', 'dequeue_task'), ('message_id', '52092'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '52092'), ('message_id', '2018-04-07 15:50:34.189483 4071'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2607', 'function': 'tasks.add', 'args': (48, 48), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2607', 'task_id': '2018-04-07 15:50:19.942837 2607'}, 51)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '52092'), ('message_id', '2018-04-07 15:50:34.189483 4071'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2607', 'function': 'tasks.add', 'args': (48, 48), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2607', 'task_id': '2018-04-07 15:50:19.942837 2607'}, 51)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '52342'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 92, 'function': 'tasks.add', 'args': [46, 46], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2605', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2605', 'correlation_id': '2018-04-07 15:50:19.942837 2605', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '52342'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '52449'), ('function', 'dequeue_task'), ('message_id', '52449'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '52449'), ('message_id', '2018-04-07 15:50:34.664753 4122'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2608', 'function': 'tasks.add', 'args': (49, 49), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2608', 'task_id': '2018-04-07 15:50:19.942837 2608'}, 50)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '52449'), ('message_id', '2018-04-07 15:50:34.664753 4122'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2608', 'function': 'tasks.add', 'args': (49, 49), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2608', 'task_id': '2018-04-07 15:50:19.942837 2608'}, 50)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '52591'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 94, 'function': 'tasks.add', 'args': [47, 47], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2606', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2606', 'correlation_id': '2018-04-07 15:50:19.942837 2606', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '52591'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '52697'), ('function', 'dequeue_task'), ('message_id', '52697'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '52697'), ('message_id', '2018-04-07 15:50:34.916456 4142'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2609', 'function': 'tasks.add', 'args': (50, 50), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2609', 'task_id': '2018-04-07 15:50:19.942837 2609'}, 49)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '52697'), ('message_id', '2018-04-07 15:50:34.916456 4142'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2609', 'function': 'tasks.add', 'args': (50, 50), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2609', 'task_id': '2018-04-07 15:50:19.942837 2609'}, 49)), ('sender', 'Client_366')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '53107'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 96, 'function': 'tasks.add', 'args': [48, 48], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2607', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2607', 'correlation_id': '2018-04-07 15:50:19.942837 2607', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '53107'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 531 bytes
+    Message:
+    OrderedDict([('correlation_id', '53028'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 98, 'function': 'tasks.add', 'args': [49, 49], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2608', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2608', 'correlation_id': '2018-04-07 15:50:19.942837 2608', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '53028'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '53132'), ('function', 'dequeue_task'), ('message_id', '53132'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '53132'), ('message_id', '2018-04-07 15:50:35.220550 4171'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2610', 'function': 'tasks.add', 'args': (51, 51), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2610', 'task_id': '2018-04-07 15:50:19.942837 2610'}, 48)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '53132'), ('message_id', '2018-04-07 15:50:35.220550 4171'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2610', 'function': 'tasks.add', 'args': (51, 51), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2610', 'task_id': '2018-04-07 15:50:19.942837 2610'}, 48)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '53212'), ('function', 'dequeue_task'), ('message_id', '53212'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '53212'), ('message_id', '2018-04-07 15:50:35.368945 4185'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2611', 'function': 'tasks.add', 'args': (52, 52), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2611', 'task_id': '2018-04-07 15:50:19.942837 2611'}, 47)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '53212'), ('message_id', '2018-04-07 15:50:35.368945 4185'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2611', 'function': 'tasks.add', 'args': (52, 52), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2611', 'task_id': '2018-04-07 15:50:19.942837 2611'}, 47)), ('sender', 'Client_366')])
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '53291'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 100, 'function': 'tasks.add', 'args': [50, 50], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2609', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2609', 'correlation_id': '2018-04-07 15:50:19.942837 2609', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '53291'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '53398'), ('function', 'dequeue_task'), ('message_id', '53398'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '53398'), ('message_id', '2018-04-07 15:50:35.524969 4201'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2612', 'function': 'tasks.add', 'args': (53, 53), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2612', 'task_id': '2018-04-07 15:50:19.942837 2612'}, 46)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '53398'), ('message_id', '2018-04-07 15:50:35.524969 4201'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2612', 'function': 'tasks.add', 'args': (53, 53), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2612', 'task_id': '2018-04-07 15:50:19.942837 2612'}, 46)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '53821'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 104, 'function': 'tasks.add', 'args': [52, 52], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2611', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2611', 'correlation_id': '2018-04-07 15:50:19.942837 2611', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '53821'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '53926'), ('function', 'dequeue_task'), ('message_id', '53926'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '53926'), ('message_id', '2018-04-07 15:50:35.953797 4239'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2613', 'function': 'tasks.add', 'args': (54, 54), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2613', 'task_id': '2018-04-07 15:50:19.942837 2613'}, 45)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Sending 496 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '53926'), ('message_id', '2018-04-07 15:50:35.953797 4239'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2613', 'function': 'tasks.add', 'args': (54, 54), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2613', 'task_id': '2018-04-07 15:50:19.942837 2613'}, 45)), ('sender', 'Client_366')])
+    Message:
+    OrderedDict([('correlation_id', '53747'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 102, 'function': 'tasks.add', 'args': [51, 51], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2610', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2610', 'correlation_id': '2018-04-07 15:50:19.942837 2610', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '53747'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '53851'), ('function', 'dequeue_task'), ('message_id', '53851'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '53851'), ('message_id', '2018-04-07 15:50:36.063064 4246'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2614', 'function': 'tasks.add', 'args': (55, 55), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2614', 'task_id': '2018-04-07 15:50:19.942837 2614'}, 44)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Sending 496 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '53851'), ('message_id', '2018-04-07 15:50:36.063064 4246'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2614', 'function': 'tasks.add', 'args': (55, 55), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2614', 'task_id': '2018-04-07 15:50:19.942837 2614'}, 44)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '53987'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 106, 'function': 'tasks.add', 'args': [53, 53], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2612', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2612', 'correlation_id': '2018-04-07 15:50:19.942837 2612', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '53987'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '54092'), ('function', 'dequeue_task'), ('message_id', '54092'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '54092'), ('message_id', '2018-04-07 15:50:36.286691 4267'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2615', 'function': 'tasks.add', 'args': (56, 56), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2615', 'task_id': '2018-04-07 15:50:19.942837 2615'}, 43)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '54092'), ('message_id', '2018-04-07 15:50:36.286691 4267'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2615', 'function': 'tasks.add', 'args': (56, 56), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2615', 'task_id': '2018-04-07 15:50:19.942837 2615'}, 43)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '54509'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 108, 'function': 'tasks.add', 'args': [54, 54], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2613', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2613', 'correlation_id': '2018-04-07 15:50:19.942837 2613', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '54509'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '54615'), ('function', 'dequeue_task'), ('message_id', '54615'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '54615'), ('message_id', '2018-04-07 15:50:36.856133 4334'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2616', 'function': 'tasks.add', 'args': (57, 57), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2616', 'task_id': '2018-04-07 15:50:19.942837 2616'}, 42)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '54615'), ('message_id', '2018-04-07 15:50:36.856133 4334'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2616', 'function': 'tasks.add', 'args': (57, 57), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2616', 'task_id': '2018-04-07 15:50:19.942837 2616'}, 42)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '54825'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 110, 'function': 'tasks.add', 'args': [55, 55], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2614', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2614', 'correlation_id': '2018-04-07 15:50:19.942837 2614', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '54825'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '54851'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 112, 'function': 'tasks.add', 'args': [56, 56], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2615', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2615', 'correlation_id': '2018-04-07 15:50:19.942837 2615', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '54851'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '54930'), ('function', 'dequeue_task'), ('message_id', '54930'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '54930'), ('message_id', '2018-04-07 15:50:37.187584 4370'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2617', 'function': 'tasks.add', 'args': (58, 58), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2617', 'task_id': '2018-04-07 15:50:19.942837 2617'}, 41)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Sending 496 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '54956'), ('function', 'dequeue_task'), ('message_id', '54956'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    Message:
+    OrderedDict([('correlation_id', '54930'), ('message_id', '2018-04-07 15:50:37.187584 4370'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2617', 'function': 'tasks.add', 'args': (58, 58), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2617', 'task_id': '2018-04-07 15:50:19.942837 2617'}, 41)), ('sender', 'Client_366')])
+    
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '54956'), ('message_id', '2018-04-07 15:50:37.300529 4384'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2618', 'function': 'tasks.add', 'args': (59, 59), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2618', 'task_id': '2018-04-07 15:50:19.942837 2618'}, 40)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '54956'), ('message_id', '2018-04-07 15:50:37.300529 4384'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2618', 'function': 'tasks.add', 'args': (59, 59), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2618', 'task_id': '2018-04-07 15:50:19.942837 2618'}, 40)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '55585'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 114, 'function': 'tasks.add', 'args': [57, 57], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2616', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2616', 'correlation_id': '2018-04-07 15:50:19.942837 2616', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '55585'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '55690'), ('function', 'dequeue_task'), ('message_id', '55690'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '55690'), ('message_id', '2018-04-07 15:50:37.851611 4439'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2619', 'function': 'tasks.add', 'args': (60, 60), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2619', 'task_id': '2018-04-07 15:50:19.942837 2619'}, 39)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '55690'), ('message_id', '2018-04-07 15:50:37.851611 4439'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2619', 'function': 'tasks.add', 'args': (60, 60), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2619', 'task_id': '2018-04-07 15:50:19.942837 2619'}, 39)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '55867'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 116, 'function': 'tasks.add', 'args': [58, 58], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2617', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2617', 'correlation_id': '2018-04-07 15:50:19.942837 2617', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '55867'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '55972'), ('function', 'dequeue_task'), ('message_id', '55972'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '55972'), ('message_id', '2018-04-07 15:50:38.155789 4472'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2620', 'function': 'tasks.add', 'args': (61, 61), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2620', 'task_id': '2018-04-07 15:50:19.942837 2620'}, 38)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '55972'), ('message_id', '2018-04-07 15:50:38.155789 4472'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2620', 'function': 'tasks.add', 'args': (61, 61), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2620', 'task_id': '2018-04-07 15:50:19.942837 2620'}, 38)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '55890'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 118, 'function': 'tasks.add', 'args': [59, 59], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2618', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2618', 'correlation_id': '2018-04-07 15:50:19.942837 2618', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '55890'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '55996'), ('function', 'dequeue_task'), ('message_id', '55996'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '55996'), ('message_id', '2018-04-07 15:50:38.484414 4510'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2621', 'function': 'tasks.add', 'args': (62, 62), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2621', 'task_id': '2018-04-07 15:50:19.942837 2621'}, 37)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '55996'), ('message_id', '2018-04-07 15:50:38.484414 4510'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2621', 'function': 'tasks.add', 'args': (62, 62), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2621', 'task_id': '2018-04-07 15:50:19.942837 2621'}, 37)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '56297'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 120, 'function': 'tasks.add', 'args': [60, 60], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2619', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2619', 'correlation_id': '2018-04-07 15:50:19.942837 2619', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '56297'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '56403'), ('function', 'dequeue_task'), ('message_id', '56403'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '56403'), ('message_id', '2018-04-07 15:50:38.849191 4552'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2622', 'function': 'tasks.add', 'args': (63, 63), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2622', 'task_id': '2018-04-07 15:50:19.942837 2622'}, 36)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '56403'), ('message_id', '2018-04-07 15:50:38.849191 4552'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2622', 'function': 'tasks.add', 'args': (63, 63), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2622', 'task_id': '2018-04-07 15:50:19.942837 2622'}, 36)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '56827'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 122, 'function': 'tasks.add', 'args': [61, 61], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2620', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2620', 'correlation_id': '2018-04-07 15:50:19.942837 2620', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '56827'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '56932'), ('function', 'dequeue_task'), ('message_id', '56932'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '56932'), ('message_id', '2018-04-07 15:50:39.224441 4592'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2623', 'function': 'tasks.add', 'args': (64, 64), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2623', 'task_id': '2018-04-07 15:50:19.942837 2623'}, 35)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '56932'), ('message_id', '2018-04-07 15:50:39.224441 4592'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2623', 'function': 'tasks.add', 'args': (64, 64), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2623', 'task_id': '2018-04-07 15:50:19.942837 2623'}, 35)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '56967'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 124, 'function': 'tasks.add', 'args': [62, 62], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2621', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2621', 'correlation_id': '2018-04-07 15:50:19.942837 2621', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '56967'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '57072'), ('function', 'dequeue_task'), ('message_id', '57072'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '57072'), ('message_id', '2018-04-07 15:50:39.611467 4628'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2624', 'function': 'tasks.add', 'args': (65, 65), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2624', 'task_id': '2018-04-07 15:50:19.942837 2624'}, 34)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '57072'), ('message_id', '2018-04-07 15:50:39.611467 4628'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2624', 'function': 'tasks.add', 'args': (65, 65), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2624', 'task_id': '2018-04-07 15:50:19.942837 2624'}, 34)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '57840'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 128, 'function': 'tasks.add', 'args': [64, 64], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2623', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2623', 'correlation_id': '2018-04-07 15:50:19.942837 2623', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '57840'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '57941'), ('function', 'dequeue_task'), ('message_id', '57941'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '57941'), ('message_id', '2018-04-07 15:50:39.989536 4668'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2625', 'function': 'tasks.add', 'args': (66, 66), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2625', 'task_id': '2018-04-07 15:50:19.942837 2625'}, 33)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '57941'), ('message_id', '2018-04-07 15:50:39.989536 4668'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2625', 'function': 'tasks.add', 'args': (66, 66), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2625', 'task_id': '2018-04-07 15:50:19.942837 2625'}, 33)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '58023'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 126, 'function': 'tasks.add', 'args': [63, 63], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2622', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2622', 'correlation_id': '2018-04-07 15:50:19.942837 2622', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '58023'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '58129'), ('function', 'dequeue_task'), ('message_id', '58129'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '58129'), ('message_id', '2018-04-07 15:50:40.343202 4708'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2626', 'function': 'tasks.add', 'args': (67, 67), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2626', 'task_id': '2018-04-07 15:50:19.942837 2626'}, 32)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '58049'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 130, 'function': 'tasks.add', 'args': [65, 65], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2624', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2624', 'correlation_id': '2018-04-07 15:50:19.942837 2624', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '58049'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    Message:
+    OrderedDict([('correlation_id', '58129'), ('message_id', '2018-04-07 15:50:40.343202 4708'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2626', 'function': 'tasks.add', 'args': (67, 67), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2626', 'task_id': '2018-04-07 15:50:19.942837 2626'}, 32)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '58154'), ('function', 'dequeue_task'), ('message_id', '58154'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '58154'), ('message_id', '2018-04-07 15:50:40.425481 4715'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2627', 'function': 'tasks.add', 'args': (68, 68), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2627', 'task_id': '2018-04-07 15:50:19.942837 2627'}, 31)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '58154'), ('message_id', '2018-04-07 15:50:40.425481 4715'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2627', 'function': 'tasks.add', 'args': (68, 68), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2627', 'task_id': '2018-04-07 15:50:19.942837 2627'}, 31)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '58544'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 132, 'function': 'tasks.add', 'args': [66, 66], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2625', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2625', 'correlation_id': '2018-04-07 15:50:19.942837 2625', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '58544'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '58649'), ('function', 'dequeue_task'), ('message_id', '58649'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '58649'), ('message_id', '2018-04-07 15:50:40.676658 4743'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2628', 'function': 'tasks.add', 'args': (69, 69), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2628', 'task_id': '2018-04-07 15:50:19.942837 2628'}, 30)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '58649'), ('message_id', '2018-04-07 15:50:40.676658 4743'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2628', 'function': 'tasks.add', 'args': (69, 69), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2628', 'task_id': '2018-04-07 15:50:19.942837 2628'}, 30)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '58819'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 134, 'function': 'tasks.add', 'args': [67, 67], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2626', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2626', 'correlation_id': '2018-04-07 15:50:19.942837 2626', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '58819'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '58925'), ('function', 'dequeue_task'), ('message_id', '58925'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '58925'), ('message_id', '2018-04-07 15:50:40.910427 4769'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2629', 'function': 'tasks.add', 'args': (70, 70), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2629', 'task_id': '2018-04-07 15:50:19.942837 2629'}, 29)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '58925'), ('message_id', '2018-04-07 15:50:40.910427 4769'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2629', 'function': 'tasks.add', 'args': (70, 70), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2629', 'task_id': '2018-04-07 15:50:19.942837 2629'}, 29)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '58809'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 136, 'function': 'tasks.add', 'args': [68, 68], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2627', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2627', 'correlation_id': '2018-04-07 15:50:19.942837 2627', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '58809'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '58914'), ('function', 'dequeue_task'), ('message_id', '58914'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '58914'), ('message_id', '2018-04-07 15:50:41.371975 4810'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2630', 'function': 'tasks.add', 'args': (71, 71), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2630', 'task_id': '2018-04-07 15:50:19.942837 2630'}, 28)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '58914'), ('message_id', '2018-04-07 15:50:41.371975 4810'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2630', 'function': 'tasks.add', 'args': (71, 71), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2630', 'task_id': '2018-04-07 15:50:19.942837 2630'}, 28)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '59046'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 138, 'function': 'tasks.add', 'args': [69, 69], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2628', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2628', 'correlation_id': '2018-04-07 15:50:19.942837 2628', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '59046'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '59151'), ('function', 'dequeue_task'), ('message_id', '59151'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '59151'), ('message_id', '2018-04-07 15:50:41.721808 4843'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2631', 'function': 'tasks.add', 'args': (72, 72), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2631', 'task_id': '2018-04-07 15:50:19.942837 2631'}, 27)), ('sender', 'Client_366')])
+    
+    Data received: 532 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '59619'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 140, 'function': 'tasks.add', 'args': [70, 70], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2629', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2629', 'correlation_id': '2018-04-07 15:50:19.942837 2629', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '59619'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Sending 496 bytes
+    Data received: 223 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '59151'), ('message_id', '2018-04-07 15:50:41.721808 4843'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.942837 2631', 'function': 'tasks.add', 'args': (72, 72), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.942837 2631', 'task_id': '2018-04-07 15:50:19.942837 2631'}, 27)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '59724'), ('function', 'dequeue_task'), ('message_id', '59724'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '59724'), ('message_id', '2018-04-07 15:50:41.813290 4850'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2632', 'function': 'tasks.add', 'args': (73, 73), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2632', 'task_id': '2018-04-07 15:50:19.943872 2632'}, 26)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '59724'), ('message_id', '2018-04-07 15:50:41.813290 4850'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2632', 'function': 'tasks.add', 'args': (73, 73), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2632', 'task_id': '2018-04-07 15:50:19.943872 2632'}, 26)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '60263'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 146, 'function': 'tasks.add', 'args': [73, 73], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2632', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2632', 'correlation_id': '2018-04-07 15:50:19.943872 2632', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '60263'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '60183'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 144, 'function': 'tasks.add', 'args': [72, 72], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2631', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2631', 'correlation_id': '2018-04-07 15:50:19.942837 2631', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '60183'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '60368'), ('function', 'dequeue_task'), ('message_id', '60368'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '60368'), ('message_id', '2018-04-07 15:50:42.696276 4911'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2633', 'function': 'tasks.add', 'args': (74, 74), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2633', 'task_id': '2018-04-07 15:50:19.943872 2633'}, 25)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '60368'), ('message_id', '2018-04-07 15:50:42.696276 4911'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2633', 'function': 'tasks.add', 'args': (74, 74), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2633', 'task_id': '2018-04-07 15:50:19.943872 2633'}, 25)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '60289'), ('function', 'dequeue_task'), ('message_id', '60289'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '60289'), ('message_id', '2018-04-07 15:50:43.035535 4934'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2634', 'function': 'tasks.add', 'args': (75, 75), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2634', 'task_id': '2018-04-07 15:50:19.943872 2634'}, 24)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '60289'), ('message_id', '2018-04-07 15:50:43.035535 4934'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2634', 'function': 'tasks.add', 'args': (75, 75), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2634', 'task_id': '2018-04-07 15:50:19.943872 2634'}, 24)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '60010'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 142, 'function': 'tasks.add', 'args': [71, 71], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.942837 2630', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.942837 2630', 'correlation_id': '2018-04-07 15:50:19.942837 2630', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '60010'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '60116'), ('function', 'dequeue_task'), ('message_id', '60116'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '60116'), ('message_id', '2018-04-07 15:50:43.458207 4967'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2635', 'function': 'tasks.add', 'args': (76, 76), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2635', 'task_id': '2018-04-07 15:50:19.943872 2635'}, 23)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '61505'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 148, 'function': 'tasks.add', 'args': [74, 74], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2633', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2633', 'correlation_id': '2018-04-07 15:50:19.943872 2633', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '61505'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    Message:
+    OrderedDict([('correlation_id', '60116'), ('message_id', '2018-04-07 15:50:43.458207 4967'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2635', 'function': 'tasks.add', 'args': (76, 76), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2635', 'task_id': '2018-04-07 15:50:19.943872 2635'}, 23)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '61428'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 150, 'function': 'tasks.add', 'args': [75, 75], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2634', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2634', 'correlation_id': '2018-04-07 15:50:19.943872 2634', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '61428'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '61609'), ('function', 'dequeue_task'), ('message_id', '61609'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '61609'), ('message_id', '2018-04-07 15:50:43.775596 4993'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2636', 'function': 'tasks.add', 'args': (77, 77), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2636', 'task_id': '2018-04-07 15:50:19.943872 2636'}, 22)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '61609'), ('message_id', '2018-04-07 15:50:43.775596 4993'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2636', 'function': 'tasks.add', 'args': (77, 77), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2636', 'task_id': '2018-04-07 15:50:19.943872 2636'}, 22)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '61532'), ('function', 'dequeue_task'), ('message_id', '61532'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '61532'), ('message_id', '2018-04-07 15:50:43.851302 5000'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2637', 'function': 'tasks.add', 'args': (78, 78), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2637', 'task_id': '2018-04-07 15:50:19.943872 2637'}, 21)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '61532'), ('message_id', '2018-04-07 15:50:43.851302 5000'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2637', 'function': 'tasks.add', 'args': (78, 78), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2637', 'task_id': '2018-04-07 15:50:19.943872 2637'}, 21)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '61852'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 152, 'function': 'tasks.add', 'args': [76, 76], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2635', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2635', 'correlation_id': '2018-04-07 15:50:19.943872 2635', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '61852'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '61959'), ('function', 'dequeue_task'), ('message_id', '61959'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '61959'), ('message_id', '2018-04-07 15:50:44.014107 5017'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2638', 'function': 'tasks.add', 'args': (79, 79), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2638', 'task_id': '2018-04-07 15:50:19.943872 2638'}, 20)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '61959'), ('message_id', '2018-04-07 15:50:44.014107 5017'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2638', 'function': 'tasks.add', 'args': (79, 79), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2638', 'task_id': '2018-04-07 15:50:19.943872 2638'}, 20)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '62278'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 154, 'function': 'tasks.add', 'args': [77, 77], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2636', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2636', 'correlation_id': '2018-04-07 15:50:19.943872 2636', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '62278'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '62383'), ('function', 'dequeue_task'), ('message_id', '62383'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '62383'), ('message_id', '2018-04-07 15:50:44.364598 5052'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2639', 'function': 'tasks.add', 'args': (80, 80), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2639', 'task_id': '2018-04-07 15:50:19.943872 2639'}, 19)), ('sender', 'Client_366')])
+    
+    Data received: 532 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '62204'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 156, 'function': 'tasks.add', 'args': [78, 78], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2637', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2637', 'correlation_id': '2018-04-07 15:50:19.943872 2637', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '62204'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '62309'), ('function', 'dequeue_task'), ('message_id', '62309'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    Message:
+    OrderedDict([('correlation_id', '62383'), ('message_id', '2018-04-07 15:50:44.364598 5052'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2639', 'function': 'tasks.add', 'args': (80, 80), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2639', 'task_id': '2018-04-07 15:50:19.943872 2639'}, 19)), ('sender', 'Client_366')])
+    
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '62309'), ('message_id', '2018-04-07 15:50:44.435790 5057'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2640', 'function': 'tasks.add', 'args': (81, 81), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2640', 'task_id': '2018-04-07 15:50:19.943872 2640'}, 18)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '62309'), ('message_id', '2018-04-07 15:50:44.435790 5057'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2640', 'function': 'tasks.add', 'args': (81, 81), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2640', 'task_id': '2018-04-07 15:50:19.943872 2640'}, 18)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '62440'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 158, 'function': 'tasks.add', 'args': [79, 79], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2638', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2638', 'correlation_id': '2018-04-07 15:50:19.943872 2638', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '62440'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '62546'), ('function', 'dequeue_task'), ('message_id', '62546'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '62546'), ('message_id', '2018-04-07 15:50:44.570189 5069'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2641', 'function': 'tasks.add', 'args': (82, 82), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2641', 'task_id': '2018-04-07 15:50:19.943872 2641'}, 17)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '62546'), ('message_id', '2018-04-07 15:50:44.570189 5069'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2641', 'function': 'tasks.add', 'args': (82, 82), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2641', 'task_id': '2018-04-07 15:50:19.943872 2641'}, 17)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '62863'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 162, 'function': 'tasks.add', 'args': [81, 81], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2640', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2640', 'correlation_id': '2018-04-07 15:50:19.943872 2640', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '62863'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '62968'), ('function', 'dequeue_task'), ('message_id', '62968'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '62968'), ('message_id', '2018-04-07 15:50:45.202873 5125'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2642', 'function': 'tasks.add', 'args': (83, 83), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2642', 'task_id': '2018-04-07 15:50:19.943872 2642'}, 16)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '62968'), ('message_id', '2018-04-07 15:50:45.202873 5125'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2642', 'function': 'tasks.add', 'args': (83, 83), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2642', 'task_id': '2018-04-07 15:50:19.943872 2642'}, 16)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '63379'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 160, 'function': 'tasks.add', 'args': [80, 80], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2639', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2639', 'correlation_id': '2018-04-07 15:50:19.943872 2639', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '63379'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '63308'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 164, 'function': 'tasks.add', 'args': [82, 82], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2641', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2641', 'correlation_id': '2018-04-07 15:50:19.943872 2641', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '63308'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '63412'), ('function', 'dequeue_task'), ('message_id', '63412'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '63412'), ('message_id', '2018-04-07 15:50:45.760295 5165'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2643', 'function': 'tasks.add', 'args': (84, 84), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2643', 'task_id': '2018-04-07 15:50:19.943872 2643'}, 15)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '63412'), ('message_id', '2018-04-07 15:50:45.760295 5165'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2643', 'function': 'tasks.add', 'args': (84, 84), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2643', 'task_id': '2018-04-07 15:50:19.943872 2643'}, 15)), ('sender', 'Client_366')])
+    Message:
+    OrderedDict([('correlation_id', '63486'), ('function', 'dequeue_task'), ('message_id', '63486'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '63486'), ('message_id', '2018-04-07 15:50:45.816443 5168'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2644', 'function': 'tasks.add', 'args': (85, 85), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2644', 'task_id': '2018-04-07 15:50:19.943872 2644'}, 14)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '63486'), ('message_id', '2018-04-07 15:50:45.816443 5168'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2644', 'function': 'tasks.add', 'args': (85, 85), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2644', 'task_id': '2018-04-07 15:50:19.943872 2644'}, 14)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '63573'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 166, 'function': 'tasks.add', 'args': [83, 83], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2642', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2642', 'correlation_id': '2018-04-07 15:50:19.943872 2642', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '63573'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '63676'), ('function', 'dequeue_task'), ('message_id', '63676'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '63676'), ('message_id', '2018-04-07 15:50:46.209147 5193'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2645', 'function': 'tasks.add', 'args': (86, 86), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2645', 'task_id': '2018-04-07 15:50:19.943872 2645'}, 13)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '63676'), ('message_id', '2018-04-07 15:50:46.209147 5193'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2645', 'function': 'tasks.add', 'args': (86, 86), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2645', 'task_id': '2018-04-07 15:50:19.943872 2645'}, 13)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '64332'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 168, 'function': 'tasks.add', 'args': [84, 84], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2643', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2643', 'correlation_id': '2018-04-07 15:50:19.943872 2643', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '64332'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '64437'), ('function', 'dequeue_task'), ('message_id', '64437'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '64437'), ('message_id', '2018-04-07 15:50:46.453018 5216'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2646', 'function': 'tasks.add', 'args': (87, 87), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2646', 'task_id': '2018-04-07 15:50:19.943872 2646'}, 12)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '64383'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 170, 'function': 'tasks.add', 'args': [85, 85], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2644', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2644', 'correlation_id': '2018-04-07 15:50:19.943872 2644', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '64383'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    Message:
+    OrderedDict([('correlation_id', '64437'), ('message_id', '2018-04-07 15:50:46.453018 5216'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2646', 'function': 'tasks.add', 'args': (87, 87), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2646', 'task_id': '2018-04-07 15:50:19.943872 2646'}, 12)), ('sender', 'Client_366')])
+    
+    Data received: 223 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '64488'), ('function', 'dequeue_task'), ('message_id', '64488'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '64488'), ('message_id', '2018-04-07 15:50:46.521611 5221'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2647', 'function': 'tasks.add', 'args': (88, 88), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2647', 'task_id': '2018-04-07 15:50:19.943872 2647'}, 11)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '64488'), ('message_id', '2018-04-07 15:50:46.521611 5221'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2647', 'function': 'tasks.add', 'args': (88, 88), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2647', 'task_id': '2018-04-07 15:50:19.943872 2647'}, 11)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '64597'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 172, 'function': 'tasks.add', 'args': [86, 86], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2645', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2645', 'correlation_id': '2018-04-07 15:50:19.943872 2645', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '64597'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '64701'), ('function', 'dequeue_task'), ('message_id', '64701'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '64701'), ('message_id', '2018-04-07 15:50:46.762398 5243'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2648', 'function': 'tasks.add', 'args': (89, 89), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2648', 'task_id': '2018-04-07 15:50:19.943872 2648'}, 10)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '64701'), ('message_id', '2018-04-07 15:50:46.762398 5243'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2648', 'function': 'tasks.add', 'args': (89, 89), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2648', 'task_id': '2018-04-07 15:50:19.943872 2648'}, 10)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '64837'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 174, 'function': 'tasks.add', 'args': [87, 87], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2646', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2646', 'correlation_id': '2018-04-07 15:50:19.943872 2646', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '64837'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '64942'), ('function', 'dequeue_task'), ('message_id', '64942'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '64942'), ('message_id', '2018-04-07 15:50:47.135974 5279'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2649', 'function': 'tasks.add', 'args': (90, 90), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2649', 'task_id': '2018-04-07 15:50:19.943872 2649'}, 9)), ('sender', 'Client_366')])
+    
+    Data received: 532 bytes
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '64942'), ('message_id', '2018-04-07 15:50:47.135974 5279'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2649', 'function': 'tasks.add', 'args': (90, 90), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2649', 'task_id': '2018-04-07 15:50:19.943872 2649'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '64960'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 176, 'function': 'tasks.add', 'args': [88, 88], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2647', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2647', 'correlation_id': '2018-04-07 15:50:19.943872 2647', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '64960'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '65065'), ('function', 'dequeue_task'), ('message_id', '65065'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '65065'), ('message_id', '2018-04-07 15:50:47.338030 5299'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2650', 'function': 'tasks.add', 'args': (91, 91), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2650', 'task_id': '2018-04-07 15:50:19.943872 2650'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '65065'), ('message_id', '2018-04-07 15:50:47.338030 5299'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2650', 'function': 'tasks.add', 'args': (91, 91), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2650', 'task_id': '2018-04-07 15:50:19.943872 2650'}, 8)), ('sender', 'Client_366')])
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '65144'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 178, 'function': 'tasks.add', 'args': [89, 89], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2648', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2648', 'correlation_id': '2018-04-07 15:50:19.943872 2648', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '65144'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '65251'), ('function', 'dequeue_task'), ('message_id', '65251'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '65251'), ('message_id', '2018-04-07 15:50:47.455146 5309'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2651', 'function': 'tasks.add', 'args': (92, 92), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2651', 'task_id': '2018-04-07 15:50:19.943872 2651'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '65251'), ('message_id', '2018-04-07 15:50:47.455146 5309'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2651', 'function': 'tasks.add', 'args': (92, 92), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2651', 'task_id': '2018-04-07 15:50:19.943872 2651'}, 7)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '65818'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 182, 'function': 'tasks.add', 'args': [91, 91], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2650', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2650', 'correlation_id': '2018-04-07 15:50:19.943872 2650', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '65818'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '65729'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 180, 'function': 'tasks.add', 'args': [90, 90], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2649', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2649', 'correlation_id': '2018-04-07 15:50:19.943872 2649', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '65729'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '65923'), ('function', 'dequeue_task'), ('message_id', '65923'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '65923'), ('message_id', '2018-04-07 15:50:48.133113 5373'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2652', 'function': 'tasks.add', 'args': (93, 93), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2652', 'task_id': '2018-04-07 15:50:19.943872 2652'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '65923'), ('message_id', '2018-04-07 15:50:48.133113 5373'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2652', 'function': 'tasks.add', 'args': (93, 93), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2652', 'task_id': '2018-04-07 15:50:19.943872 2652'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '65834'), ('function', 'dequeue_task'), ('message_id', '65834'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '65834'), ('message_id', '2018-04-07 15:50:48.267483 5386'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2653', 'function': 'tasks.add', 'args': (94, 94), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2653', 'task_id': '2018-04-07 15:50:19.943872 2653'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '65834'), ('message_id', '2018-04-07 15:50:48.267483 5386'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2653', 'function': 'tasks.add', 'args': (94, 94), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2653', 'task_id': '2018-04-07 15:50:19.943872 2653'}, 5)), ('sender', 'Client_366')])
+    
+    Data received: 532 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '65826'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 184, 'function': 'tasks.add', 'args': [92, 92], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2651', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2651', 'correlation_id': '2018-04-07 15:50:19.943872 2651', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '65826'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '65929'), ('function', 'dequeue_task'), ('message_id', '65929'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '65929'), ('message_id', '2018-04-07 15:50:48.490148 5408'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2654', 'function': 'tasks.add', 'args': (95, 95), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2654', 'task_id': '2018-04-07 15:50:19.943872 2654'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '65929'), ('message_id', '2018-04-07 15:50:48.490148 5408'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2654', 'function': 'tasks.add', 'args': (95, 95), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2654', 'task_id': '2018-04-07 15:50:19.943872 2654'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '66712'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 186, 'function': 'tasks.add', 'args': [93, 93], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2652', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2652', 'correlation_id': '2018-04-07 15:50:19.943872 2652', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '66712'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '66818'), ('function', 'dequeue_task'), ('message_id', '66818'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '66818'), ('message_id', '2018-04-07 15:50:48.766774 5438'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2655', 'function': 'tasks.add', 'args': (96, 96), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2655', 'task_id': '2018-04-07 15:50:19.943872 2655'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '66818'), ('message_id', '2018-04-07 15:50:48.766774 5438'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2655', 'function': 'tasks.add', 'args': (96, 96), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2655', 'task_id': '2018-04-07 15:50:19.943872 2655'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '66661'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 188, 'function': 'tasks.add', 'args': [94, 94], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2653', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2653', 'correlation_id': '2018-04-07 15:50:19.943872 2653', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '66661'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '66766'), ('function', 'dequeue_task'), ('message_id', '66766'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '66766'), ('message_id', '2018-04-07 15:50:49.046492 5464'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2656', 'function': 'tasks.add', 'args': (97, 97), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2656', 'task_id': '2018-04-07 15:50:19.943872 2656'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '66866'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 190, 'function': 'tasks.add', 'args': [95, 95], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2654', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2654', 'correlation_id': '2018-04-07 15:50:19.943872 2654', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '66866'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    Message:
+    OrderedDict([('correlation_id', '66766'), ('message_id', '2018-04-07 15:50:49.046492 5464'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2656', 'function': 'tasks.add', 'args': (97, 97), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2656', 'task_id': '2018-04-07 15:50:19.943872 2656'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '66971'), ('function', 'dequeue_task'), ('message_id', '66971'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '66971'), ('message_id', '2018-04-07 15:50:49.241637 5479'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2657', 'function': 'tasks.add', 'args': (98, 98), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2657', 'task_id': '2018-04-07 15:50:19.943872 2657'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '66971'), ('message_id', '2018-04-07 15:50:49.241637 5479'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2657', 'function': 'tasks.add', 'args': (98, 98), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2657', 'task_id': '2018-04-07 15:50:19.943872 2657'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '67448'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 194, 'function': 'tasks.add', 'args': [97, 97], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2656', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2656', 'correlation_id': '2018-04-07 15:50:19.943872 2656', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '67448'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '67553'), ('function', 'dequeue_task'), ('message_id', '67553'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '67553'), ('message_id', '2018-04-07 15:50:49.610645 5511'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2658', 'function': 'tasks.add', 'args': (99, 99), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2658', 'task_id': '2018-04-07 15:50:19.943872 2658'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 495 bytes
+    Message:
+    OrderedDict([('correlation_id', '67553'), ('message_id', '2018-04-07 15:50:49.610645 5511'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:19.943872 2658', 'function': 'tasks.add', 'args': (99, 99), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:19.943872 2658', 'task_id': '2018-04-07 15:50:19.943872 2658'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '67767'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 192, 'function': 'tasks.add', 'args': [96, 96], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2655', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2655', 'correlation_id': '2018-04-07 15:50:19.943872 2655', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '67767'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '67872'), ('function', 'dequeue_task'), ('message_id', '67872'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '67872'), ('message_id', '2018-04-07 15:50:49.984466 5550'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '67872'), ('message_id', '2018-04-07 15:50:49.984466 5550'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    Data received: 532 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '67624'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 196, 'function': 'tasks.add', 'args': [98, 98], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2657', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2657', 'correlation_id': '2018-04-07 15:50:19.943872 2657', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '67624'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '67730'), ('function', 'dequeue_task'), ('message_id', '67730'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '67730'), ('message_id', '2018-04-07 15:50:50.156479 5566'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 209 bytes
+    Message:
+    OrderedDict([('correlation_id', '67730'), ('message_id', '2018-04-07 15:50:50.156479 5566'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 532 bytes
+    Message:
+    OrderedDict([('correlation_id', '68046'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': 198, 'function': 'tasks.add', 'args': [99, 99], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:19.943872 2658', 'message_type': 'result', 'task_id': '2018-04-07 15:50:19.943872 2658', 'correlation_id': '2018-04-07 15:50:19.943872 2658', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '68046'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+
+
+
+
+    [[0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
+     [20, 22, 24, 26, 28, 30, 32, 34, 36, 38],
+     [40, 42, 44, 46, 48, 50, 52, 54, 56, 58],
+     [60, 62, 64, 66, 68, 70, 72, 74, 76, 78],
+     [80, 82, 84, 86, 88, 90, 92, 94, 96, 98],
+     [100, 102, 104, 106, 108, 110, 112, 114, 116, 118],
+     [120, 122, 124, 126, 128, 130, 132, 134, 136, 138],
+     [140, 142, 144, 146, 148, 150, 152, 154, 156, 158],
+     [160, 162, 164, 166, 168, 170, 172, 174, 176, 178],
+     [180, 182, 184, 186, 188, 190, 192, 194, 196, 198]]
+
+
+
+### Word Count
+最後我們以 Hadoop 領域中的 "Hello World" 範例 "Word Count" 來測試。  
+
+我們會把一個文字檔的內容拆解成 words 並將每個 word 發送給 workers 處理，workers 要做的主要是一個`mapper`處理：
+```
+def mapper(word):
+    return (word, 1) if len(word) > 3 else None
+```
+worker 會將處理的結果傳回來，client 這邊會有一個`reduce`function 將結果彙整。  
+
+我們可以在 ESP32 cluster 上面這樣做：
+
+
+```python
+import word_count
+
+text_file = os.path.join('..', '..', 'codes', 'broccoli', 'client', 'test.txt')
+words_count, counts = word_count.count_words(text_file)
+print('********** result:\nwords count: {}\n\n{}\n**********'.format(words_count, counts[:10]))
+```
+
+    
+    Sending 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:51.663029 5746'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:51.663029 5746'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 261 bytes
+    Message:
+    OrderedDict([('correlation_id', '2018-04-07 15:50:51.663029 5746'), ('function', 'fetch_task'), ('kwargs', {'broker': 'Client_366'}), ('message_id', '2018-04-07 15:50:51.663029 5746'), ('message_type', 'function'), ('receiver', 'Hub'), ('reply_to', 'Client_366'), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '70073'), ('function', 'dequeue_task'), ('message_id', '70073'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '70073'), ('message_id', '2018-04-07 15:50:52.135110 5890'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.663029 5745', 'function': 'tasks.mapper', 'args': ("Aesop's",), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.663029 5745', 'task_id': '2018-04-07 15:50:51.663029 5745'}, 93)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    Message:
+    OrderedDict([('correlation_id', '70073'), ('message_id', '2018-04-07 15:50:52.135110 5890'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.663029 5745', 'function': 'tasks.mapper', 'args': ("Aesop's",), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.663029 5745', 'task_id': '2018-04-07 15:50:51.663029 5745'}, 93)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '69993'), ('function', 'dequeue_task'), ('message_id', '69993'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '69993'), ('message_id', '2018-04-07 15:50:52.319162 5911'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5748', 'function': 'tasks.mapper', 'args': ('Fables',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5748', 'task_id': '2018-04-07 15:50:51.680082 5748'}, 92)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '69993'), ('message_id', '2018-04-07 15:50:52.319162 5911'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5748', 'function': 'tasks.mapper', 'args': ('Fables',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5748', 'task_id': '2018-04-07 15:50:51.680082 5748'}, 92)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '70018'), ('function', 'dequeue_task'), ('message_id', '70018'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '70018'), ('message_id', '2018-04-07 15:50:52.494659 5929'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5749', 'function': 'tasks.mapper', 'args': ('Translated',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5749', 'task_id': '2018-04-07 15:50:51.680082 5749'}, 91)), ('sender', 'Client_366')])
+    
+    
+    Sending 505 bytes
+    Message:
+    OrderedDict([('correlation_id', '70018'), ('message_id', '2018-04-07 15:50:52.494659 5929'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5749', 'function': 'tasks.mapper', 'args': ('Translated',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5749', 'task_id': '2018-04-07 15:50:51.680082 5749'}, 91)), ('sender', 'Client_366')])
+    
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '70786'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ["Aesop's", 1], 'function': 'tasks.mapper', 'args': ["Aesop's"], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.663029 5745', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.663029 5745', 'correlation_id': '2018-04-07 15:50:51.663029 5745', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '70786'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '70895'), ('function', 'dequeue_task'), ('message_id', '70895'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '70895'), ('message_id', '2018-04-07 15:50:52.888020 5971'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5750', 'function': 'tasks.mapper', 'args': ('by',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5750', 'task_id': '2018-04-07 15:50:51.680082 5750'}, 90)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '70895'), ('message_id', '2018-04-07 15:50:52.888020 5971'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5750', 'function': 'tasks.mapper', 'args': ('by',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5750', 'task_id': '2018-04-07 15:50:51.680082 5750'}, 90)), ('sender', 'Client_366')])
+    
+    
+    Data received: 547 bytes
+    Message:
+    OrderedDict([('correlation_id', '70749'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Fables', 1], 'function': 'tasks.mapper', 'args': ['Fables'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5748', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5748', 'correlation_id': '2018-04-07 15:50:51.680082 5748', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '70749'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '70857'), ('function', 'dequeue_task'), ('message_id', '70857'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '70857'), ('message_id', '2018-04-07 15:50:53.217531 6006'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5751', 'function': 'tasks.mapper', 'args': ('George',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5751', 'task_id': '2018-04-07 15:50:51.680082 5751'}, 89)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '70857'), ('message_id', '2018-04-07 15:50:53.217531 6006'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5751', 'function': 'tasks.mapper', 'args': ('George',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5751', 'task_id': '2018-04-07 15:50:51.680082 5751'}, 89)), ('sender', 'Client_366')])
+    
+    
+    Data received: 555 bytes
+    Message:
+    OrderedDict([('correlation_id', '70989'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Translated', 1], 'function': 'tasks.mapper', 'args': ['Translated'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5749', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5749', 'correlation_id': '2018-04-07 15:50:51.680082 5749', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '70989'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '71097'), ('function', 'dequeue_task'), ('message_id', '71097'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '71097'), ('message_id', '2018-04-07 15:50:53.631706 6053'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5752', 'function': 'tasks.mapper', 'args': ('Fyler',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5752', 'task_id': '2018-04-07 15:50:51.680082 5752'}, 88)), ('sender', 'Client_366')])
+    
+    
+    Sending 500 bytes
+    Message:
+    OrderedDict([('correlation_id', '71097'), ('message_id', '2018-04-07 15:50:53.631706 6053'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5752', 'function': 'tasks.mapper', 'args': ('Fyler',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5752', 'task_id': '2018-04-07 15:50:51.680082 5752'}, 88)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '71541'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['by'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5750', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5750', 'correlation_id': '2018-04-07 15:50:51.680082 5750', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '71541'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '71647'), ('function', 'dequeue_task'), ('message_id', '71647'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '71647'), ('message_id', '2018-04-07 15:50:54.180038 6113'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5753', 'function': 'tasks.mapper', 'args': ('Townsend',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5753', 'task_id': '2018-04-07 15:50:51.680082 5753'}, 87)), ('sender', 'Client_366')])
+    
+    
+    Sending 503 bytes
+    Message:
+    OrderedDict([('correlation_id', '71647'), ('message_id', '2018-04-07 15:50:54.180038 6113'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5753', 'function': 'tasks.mapper', 'args': ('Townsend',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5753', 'task_id': '2018-04-07 15:50:51.680082 5753'}, 87)), ('sender', 'Client_366')])
+    
+    Data received: 547 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '71782'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['George', 1], 'function': 'tasks.mapper', 'args': ['George'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5751', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5751', 'correlation_id': '2018-04-07 15:50:51.680082 5751', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '71782'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '71889'), ('function', 'dequeue_task'), ('message_id', '71889'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '71889'), ('message_id', '2018-04-07 15:50:54.371488 6135'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5754', 'function': 'tasks.mapper', 'args': ('The',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5754', 'task_id': '2018-04-07 15:50:51.680082 5754'}, 86)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '71889'), ('message_id', '2018-04-07 15:50:54.371488 6135'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5754', 'function': 'tasks.mapper', 'args': ('The',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5754', 'task_id': '2018-04-07 15:50:51.680082 5754'}, 86)), ('sender', 'Client_366')])
+    
+    
+    Data received: 545 bytes
+    Message:
+    OrderedDict([('correlation_id', '72371'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Fyler', 1], 'function': 'tasks.mapper', 'args': ['Fyler'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5752', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5752', 'correlation_id': '2018-04-07 15:50:51.680082 5752', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '72371'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '72479'), ('function', 'dequeue_task'), ('message_id', '72479'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '72479'), ('message_id', '2018-04-07 15:50:54.687524 6168'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5755', 'function': 'tasks.mapper', 'args': ('Wolf',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5755', 'task_id': '2018-04-07 15:50:51.680082 5755'}, 85)), ('sender', 'Client_366')])
+    
+    
+    Data received: 551 bytes
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '72479'), ('message_id', '2018-04-07 15:50:54.687524 6168'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5755', 'function': 'tasks.mapper', 'args': ('Wolf',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5755', 'task_id': '2018-04-07 15:50:51.680082 5755'}, 85)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '72621'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Townsend', 1], 'function': 'tasks.mapper', 'args': ['Townsend'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5753', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5753', 'correlation_id': '2018-04-07 15:50:51.680082 5753', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '72621'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '72730'), ('function', 'dequeue_task'), ('message_id', '72730'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '72730'), ('message_id', '2018-04-07 15:50:55.107278 6217'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5756', 'function': 'tasks.mapper', 'args': ('and',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5756', 'task_id': '2018-04-07 15:50:51.680082 5756'}, 84)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '72730'), ('message_id', '2018-04-07 15:50:55.107278 6217'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5756', 'function': 'tasks.mapper', 'args': ('and',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5756', 'task_id': '2018-04-07 15:50:51.680082 5756'}, 84)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '72947'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['The'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5754', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5754', 'correlation_id': '2018-04-07 15:50:51.680082 5754', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '72947'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '73052'), ('function', 'dequeue_task'), ('message_id', '73052'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '73052'), ('message_id', '2018-04-07 15:50:55.650279 6279'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5757', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5757', 'task_id': '2018-04-07 15:50:51.680082 5757'}, 83)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '73052'), ('message_id', '2018-04-07 15:50:55.650279 6279'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5757', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5757', 'task_id': '2018-04-07 15:50:51.680082 5757'}, 83)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '73693'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Wolf', 1], 'function': 'tasks.mapper', 'args': ['Wolf'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5755', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5755', 'correlation_id': '2018-04-07 15:50:51.680082 5755', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '73693'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '73800'), ('function', 'dequeue_task'), ('message_id', '73800'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '73800'), ('message_id', '2018-04-07 15:50:56.177976 6339'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5758', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5758', 'task_id': '2018-04-07 15:50:51.680082 5758'}, 82)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '73800'), ('message_id', '2018-04-07 15:50:56.177976 6339'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5758', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5758', 'task_id': '2018-04-07 15:50:51.680082 5758'}, 82)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '73752'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['and'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5756', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5756', 'correlation_id': '2018-04-07 15:50:51.680082 5756', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '73752'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '73857'), ('function', 'dequeue_task'), ('message_id', '73857'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '73857'), ('message_id', '2018-04-07 15:50:56.325363 6355'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5759', 'function': 'tasks.mapper', 'args': ('WOLF',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5759', 'task_id': '2018-04-07 15:50:51.680082 5759'}, 81)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '73857'), ('message_id', '2018-04-07 15:50:56.325363 6355'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5759', 'function': 'tasks.mapper', 'args': ('WOLF',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5759', 'task_id': '2018-04-07 15:50:51.680082 5759'}, 81)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '74387'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['the'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5757', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5757', 'correlation_id': '2018-04-07 15:50:51.680082 5757', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '74387'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '74493'), ('function', 'dequeue_task'), ('message_id', '74493'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '74493'), ('message_id', '2018-04-07 15:50:56.682469 6396'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5760', 'function': 'tasks.mapper', 'args': ('meeting',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5760', 'task_id': '2018-04-07 15:50:51.680082 5760'}, 80)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    Message:
+    OrderedDict([('correlation_id', '74493'), ('message_id', '2018-04-07 15:50:56.682469 6396'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.680082 5760', 'function': 'tasks.mapper', 'args': ('meeting',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.680082 5760', 'task_id': '2018-04-07 15:50:51.680082 5760'}, 80)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '74631'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Lamb', 1], 'function': 'tasks.mapper', 'args': ['Lamb'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5758', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5758', 'correlation_id': '2018-04-07 15:50:51.680082 5758', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '74631'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '74739'), ('function', 'dequeue_task'), ('message_id', '74739'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '74739'), ('message_id', '2018-04-07 15:50:57.144186 6449'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5761', 'function': 'tasks.mapper', 'args': ('with',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5761', 'task_id': '2018-04-07 15:50:51.681105 5761'}, 79)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '74739'), ('message_id', '2018-04-07 15:50:57.144186 6449'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5761', 'function': 'tasks.mapper', 'args': ('with',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5761', 'task_id': '2018-04-07 15:50:51.681105 5761'}, 79)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '74780'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['WOLF', 1], 'function': 'tasks.mapper', 'args': ['WOLF'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5759', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5759', 'correlation_id': '2018-04-07 15:50:51.680082 5759', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '74780'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '74890'), ('function', 'dequeue_task'), ('message_id', '74890'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '74890'), ('message_id', '2018-04-07 15:50:57.580787 6499'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5762', 'function': 'tasks.mapper', 'args': ('a',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5762', 'task_id': '2018-04-07 15:50:51.681105 5762'}, 78)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '74890'), ('message_id', '2018-04-07 15:50:57.580787 6499'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5762', 'function': 'tasks.mapper', 'args': ('a',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5762', 'task_id': '2018-04-07 15:50:51.681105 5762'}, 78)), ('sender', 'Client_366')])
+    
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '75312'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['meeting', 1], 'function': 'tasks.mapper', 'args': ['meeting'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.680082 5760', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.680082 5760', 'correlation_id': '2018-04-07 15:50:51.680082 5760', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '75312'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '75420'), ('function', 'dequeue_task'), ('message_id', '75420'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '75420'), ('message_id', '2018-04-07 15:50:57.921351 6538'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5763', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5763', 'task_id': '2018-04-07 15:50:51.681105 5763'}, 77)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '75420'), ('message_id', '2018-04-07 15:50:57.921351 6538'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5763', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5763', 'task_id': '2018-04-07 15:50:51.681105 5763'}, 77)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '75822'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['with', 1], 'function': 'tasks.mapper', 'args': ['with'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5761', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5761', 'correlation_id': '2018-04-07 15:50:51.681105 5761', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '75822'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '75931'), ('function', 'dequeue_task'), ('message_id', '75931'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '75931'), ('message_id', '2018-04-07 15:50:58.407714 6594'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5764', 'function': 'tasks.mapper', 'args': ('astray',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5764', 'task_id': '2018-04-07 15:50:51.681105 5764'}, 76)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '75931'), ('message_id', '2018-04-07 15:50:58.407714 6594'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5764', 'function': 'tasks.mapper', 'args': ('astray',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5764', 'task_id': '2018-04-07 15:50:51.681105 5764'}, 76)), ('sender', 'Client_366')])
+    
+    
+    Data received: 533 bytes
+    Message:
+    OrderedDict([('correlation_id', '76302'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['a'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5762', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5762', 'correlation_id': '2018-04-07 15:50:51.681105 5762', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '76302'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '76408'), ('function', 'dequeue_task'), ('message_id', '76408'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '76408'), ('message_id', '2018-04-07 15:50:58.738079 6631'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5765', 'function': 'tasks.mapper', 'args': ('from',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5765', 'task_id': '2018-04-07 15:50:51.681105 5765'}, 75)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '76408'), ('message_id', '2018-04-07 15:50:58.738079 6631'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5765', 'function': 'tasks.mapper', 'args': ('from',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5765', 'task_id': '2018-04-07 15:50:51.681105 5765'}, 75)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '76592'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Lamb', 1], 'function': 'tasks.mapper', 'args': ['Lamb'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5763', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5763', 'correlation_id': '2018-04-07 15:50:51.681105 5763', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '76592'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '76699'), ('function', 'dequeue_task'), ('message_id', '76699'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '76699'), ('message_id', '2018-04-07 15:50:58.878834 6645'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5766', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5766', 'task_id': '2018-04-07 15:50:51.681105 5766'}, 74)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '76699'), ('message_id', '2018-04-07 15:50:58.878834 6645'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5766', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5766', 'task_id': '2018-04-07 15:50:51.681105 5766'}, 74)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '77265'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['from', 1], 'function': 'tasks.mapper', 'args': ['from'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5765', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5765', 'correlation_id': '2018-04-07 15:50:51.681105 5765', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '77265'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '77372'), ('function', 'dequeue_task'), ('message_id', '77372'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '77372'), ('message_id', '2018-04-07 15:50:59.491287 6718'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5767', 'function': 'tasks.mapper', 'args': ('fold',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5767', 'task_id': '2018-04-07 15:50:51.681105 5767'}, 73)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '77372'), ('message_id', '2018-04-07 15:50:59.491287 6718'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5767', 'function': 'tasks.mapper', 'args': ('fold',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5767', 'task_id': '2018-04-07 15:50:51.681105 5767'}, 73)), ('sender', 'Client_366')])
+    
+    
+    Data received: 547 bytes
+    Message:
+    OrderedDict([('correlation_id', '76970'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['astray', 1], 'function': 'tasks.mapper', 'args': ['astray'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5764', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5764', 'correlation_id': '2018-04-07 15:50:51.681105 5764', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '76970'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '77078'), ('function', 'dequeue_task'), ('message_id', '77078'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '77078'), ('message_id', '2018-04-07 15:50:59.707171 6740'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5768', 'function': 'tasks.mapper', 'args': ('resolved',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5768', 'task_id': '2018-04-07 15:50:51.681105 5768'}, 72)), ('sender', 'Client_366')])
+    
+    Data received: 535 bytes
+    
+    Sending 503 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '77412'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['the'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5766', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5766', 'correlation_id': '2018-04-07 15:50:51.681105 5766', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '77412'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    Message:
+    OrderedDict([('correlation_id', '77078'), ('message_id', '2018-04-07 15:50:59.707171 6740'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5768', 'function': 'tasks.mapper', 'args': ('resolved',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5768', 'task_id': '2018-04-07 15:50:51.681105 5768'}, 72)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '77517'), ('function', 'dequeue_task'), ('message_id', '77517'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '77517'), ('message_id', '2018-04-07 15:50:59.876004 6759'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5769', 'function': 'tasks.mapper', 'args': ('not',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5769', 'task_id': '2018-04-07 15:50:51.681105 5769'}, 71)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '77517'), ('message_id', '2018-04-07 15:50:59.876004 6759'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5769', 'function': 'tasks.mapper', 'args': ('not',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5769', 'task_id': '2018-04-07 15:50:51.681105 5769'}, 71)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '78104'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['fold', 1], 'function': 'tasks.mapper', 'args': ['fold'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5767', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5767', 'correlation_id': '2018-04-07 15:50:51.681105 5767', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '78104'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '78211'), ('function', 'dequeue_task'), ('message_id', '78211'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '78211'), ('message_id', '2018-04-07 15:51:00.297299 6807'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5770', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5770', 'task_id': '2018-04-07 15:50:51.681105 5770'}, 70)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '78211'), ('message_id', '2018-04-07 15:51:00.297299 6807'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5770', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5770', 'task_id': '2018-04-07 15:50:51.681105 5770'}, 70)), ('sender', 'Client_366')])
+    
+    
+    Data received: 551 bytes
+    Message:
+    OrderedDict([('correlation_id', '78136'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['resolved', 1], 'function': 'tasks.mapper', 'args': ['resolved'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5768', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5768', 'correlation_id': '2018-04-07 15:50:51.681105 5768', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '78136'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '78244'), ('function', 'dequeue_task'), ('message_id', '78244'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '78244'), ('message_id', '2018-04-07 15:51:00.428041 6820'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5771', 'function': 'tasks.mapper', 'args': ('lay',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5771', 'task_id': '2018-04-07 15:50:51.681105 5771'}, 69)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Data received: 535 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '78329'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['not'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5769', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5769', 'correlation_id': '2018-04-07 15:50:51.681105 5769', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '78329'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytesMessage:
+    OrderedDict([('correlation_id', '78244'), ('message_id', '2018-04-07 15:51:00.428041 6820'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5771', 'function': 'tasks.mapper', 'args': ('lay',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5771', 'task_id': '2018-04-07 15:50:51.681105 5771'}, 69)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '78434'), ('function', 'dequeue_task'), ('message_id', '78434'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '78434'), ('message_id', '2018-04-07 15:51:00.590381 6838'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5772', 'function': 'tasks.mapper', 'args': ('violent',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5772', 'task_id': '2018-04-07 15:50:51.681105 5772'}, 68)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    Message:
+    OrderedDict([('correlation_id', '78434'), ('message_id', '2018-04-07 15:51:00.590381 6838'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5772', 'function': 'tasks.mapper', 'args': ('violent',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5772', 'task_id': '2018-04-07 15:50:51.681105 5772'}, 68)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '78819'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['to'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5770', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5770', 'correlation_id': '2018-04-07 15:50:51.681105 5770', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '78819'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '78923'), ('function', 'dequeue_task'), ('message_id', '78923'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '78923'), ('message_id', '2018-04-07 15:51:01.200855 6907'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5773', 'function': 'tasks.mapper', 'args': ('hands',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5773', 'task_id': '2018-04-07 15:50:51.681105 5773'}, 67)), ('sender', 'Client_366')])
+    
+    
+    Sending 500 bytes
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '79020'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['violent', 1], 'function': 'tasks.mapper', 'args': ['violent'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5772', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5772', 'correlation_id': '2018-04-07 15:50:51.681105 5772', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '79020'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    Message:
+    OrderedDict([('correlation_id', '78923'), ('message_id', '2018-04-07 15:51:01.200855 6907'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5773', 'function': 'tasks.mapper', 'args': ('hands',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5773', 'task_id': '2018-04-07 15:50:51.681105 5773'}, 67)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '79128'), ('function', 'dequeue_task'), ('message_id', '79128'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '79128'), ('message_id', '2018-04-07 15:51:01.403465 6931'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5774', 'function': 'tasks.mapper', 'args': ('on',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5774', 'task_id': '2018-04-07 15:50:51.681105 5774'}, 66)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '79128'), ('message_id', '2018-04-07 15:51:01.403465 6931'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5774', 'function': 'tasks.mapper', 'args': ('on',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5774', 'task_id': '2018-04-07 15:50:51.681105 5774'}, 66)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '79038'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['lay'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5771', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5771', 'correlation_id': '2018-04-07 15:50:51.681105 5771', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '79038'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '79144'), ('function', 'dequeue_task'), ('message_id', '79144'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '79144'), ('message_id', '2018-04-07 15:51:01.684874 6960'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5775', 'function': 'tasks.mapper', 'args': ('him',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5775', 'task_id': '2018-04-07 15:50:51.681105 5775'}, 65)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '79144'), ('message_id', '2018-04-07 15:51:01.684874 6960'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5775', 'function': 'tasks.mapper', 'args': ('him',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5775', 'task_id': '2018-04-07 15:50:51.681105 5775'}, 65)), ('sender', 'Client_366')])
+    
+    
+    Data received: 545 bytes
+    Message:
+    OrderedDict([('correlation_id', '79668'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['hands', 1], 'function': 'tasks.mapper', 'args': ['hands'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5773', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5773', 'correlation_id': '2018-04-07 15:50:51.681105 5773', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '79668'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '79777'), ('function', 'dequeue_task'), ('message_id', '79777'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '79777'), ('message_id', '2018-04-07 15:51:01.996311 6995'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5776', 'function': 'tasks.mapper', 'args': ('but',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5776', 'task_id': '2018-04-07 15:50:51.681105 5776'}, 64)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    
+    Data received: 534 bytesMessage:
+    OrderedDict([('correlation_id', '79777'), ('message_id', '2018-04-07 15:51:01.996311 6995'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5776', 'function': 'tasks.mapper', 'args': ('but',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5776', 'task_id': '2018-04-07 15:50:51.681105 5776'}, 64)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '79867'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['on'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5774', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5774', 'correlation_id': '2018-04-07 15:50:51.681105 5774', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '79867'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '79971'), ('function', 'dequeue_task'), ('message_id', '79971'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '79971'), ('message_id', '2018-04-07 15:51:02.282082 7028'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5777', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5777', 'task_id': '2018-04-07 15:50:51.681105 5777'}, 63)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '79971'), ('message_id', '2018-04-07 15:51:02.282082 7028'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5777', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5777', 'task_id': '2018-04-07 15:50:51.681105 5777'}, 63)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '80269'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['him'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5775', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5775', 'correlation_id': '2018-04-07 15:50:51.681105 5775', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '80269'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '80375'), ('function', 'dequeue_task'), ('message_id', '80375'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '80375'), ('message_id', '2018-04-07 15:51:02.808081 7089'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5778', 'function': 'tasks.mapper', 'args': ('find',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5778', 'task_id': '2018-04-07 15:50:51.681105 5778'}, 62)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '80375'), ('message_id', '2018-04-07 15:51:02.808081 7089'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5778', 'function': 'tasks.mapper', 'args': ('find',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5778', 'task_id': '2018-04-07 15:50:51.681105 5778'}, 62)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '80943'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['but'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5776', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5776', 'correlation_id': '2018-04-07 15:50:51.681105 5776', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '80943'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '80888'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['to'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5777', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5777', 'correlation_id': '2018-04-07 15:50:51.681105 5777', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '80888'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '81049'), ('function', 'dequeue_task'), ('message_id', '81049'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '81049'), ('message_id', '2018-04-07 15:51:03.306110 7145'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5779', 'function': 'tasks.mapper', 'args': ('some',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5779', 'task_id': '2018-04-07 15:50:51.681105 5779'}, 61)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '81049'), ('message_id', '2018-04-07 15:51:03.306110 7145'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5779', 'function': 'tasks.mapper', 'args': ('some',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5779', 'task_id': '2018-04-07 15:50:51.681105 5779'}, 61)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '80993'), ('function', 'dequeue_task'), ('message_id', '80993'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '80993'), ('message_id', '2018-04-07 15:51:03.675994 7187'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5780', 'function': 'tasks.mapper', 'args': ('plea',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5780', 'task_id': '2018-04-07 15:50:51.681105 5780'}, 60)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '80993'), ('message_id', '2018-04-07 15:51:03.675994 7187'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5780', 'function': 'tasks.mapper', 'args': ('plea',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5780', 'task_id': '2018-04-07 15:50:51.681105 5780'}, 60)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '81262'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['find', 1], 'function': 'tasks.mapper', 'args': ['find'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5778', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5778', 'correlation_id': '2018-04-07 15:50:51.681105 5778', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '81262'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '81370'), ('function', 'dequeue_task'), ('message_id', '81370'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '81370'), ('message_id', '2018-04-07 15:51:04.028278 7228'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5781', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5781', 'task_id': '2018-04-07 15:50:51.681105 5781'}, 59)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '81370'), ('message_id', '2018-04-07 15:51:04.028278 7228'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5781', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5781', 'task_id': '2018-04-07 15:50:51.681105 5781'}, 59)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '82146'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['some', 1], 'function': 'tasks.mapper', 'args': ['some'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5779', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5779', 'correlation_id': '2018-04-07 15:50:51.681105 5779', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '82146'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '82255'), ('function', 'dequeue_task'), ('message_id', '82255'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '82255'), ('message_id', '2018-04-07 15:51:04.586655 7292'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5782', 'function': 'tasks.mapper', 'args': ('justify',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5782', 'task_id': '2018-04-07 15:50:51.681105 5782'}, 58)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    Message:
+    OrderedDict([('correlation_id', '82255'), ('message_id', '2018-04-07 15:51:04.586655 7292'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5782', 'function': 'tasks.mapper', 'args': ('justify',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5782', 'task_id': '2018-04-07 15:50:51.681105 5782'}, 58)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '82070'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['plea', 1], 'function': 'tasks.mapper', 'args': ['plea'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5780', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5780', 'correlation_id': '2018-04-07 15:50:51.681105 5780', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '82070'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '82178'), ('function', 'dequeue_task'), ('message_id', '82178'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '82178'), ('message_id', '2018-04-07 15:51:05.268702 7373'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5783', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5783', 'task_id': '2018-04-07 15:50:51.681105 5783'}, 57)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '82178'), ('message_id', '2018-04-07 15:51:05.268702 7373'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5783', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5783', 'task_id': '2018-04-07 15:50:51.681105 5783'}, 57)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '82816'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['to'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5781', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5781', 'correlation_id': '2018-04-07 15:50:51.681105 5781', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '82816'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '82921'), ('function', 'dequeue_task'), ('message_id', '82921'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '82921'), ('message_id', '2018-04-07 15:51:05.868694 7443'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5784', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5784', 'task_id': '2018-04-07 15:50:51.681105 5784'}, 56)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '82921'), ('message_id', '2018-04-07 15:51:05.868694 7443'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5784', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5784', 'task_id': '2018-04-07 15:50:51.681105 5784'}, 56)), ('sender', 'Client_366')])
+    
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '83474'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['justify', 1], 'function': 'tasks.mapper', 'args': ['justify'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5782', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5782', 'correlation_id': '2018-04-07 15:50:51.681105 5782', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '83474'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '83582'), ('function', 'dequeue_task'), ('message_id', '83582'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '83582'), ('message_id', '2018-04-07 15:51:06.313287 7494'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5785', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5785', 'task_id': '2018-04-07 15:50:51.681105 5785'}, 55)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '83582'), ('message_id', '2018-04-07 15:51:06.313287 7494'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5785', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5785', 'task_id': '2018-04-07 15:50:51.681105 5785'}, 55)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '84017'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['to'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5783', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5783', 'correlation_id': '2018-04-07 15:50:51.681105 5783', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '84017'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '84123'), ('function', 'dequeue_task'), ('message_id', '84123'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '84123'), ('message_id', '2018-04-07 15:51:06.640692 7530'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5786', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5786', 'task_id': '2018-04-07 15:50:51.681105 5786'}, 54)), ('sender', 'Client_366')])
+    
+    Data received: 535 bytes
+    
+    Sending 498 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '84123'), ('message_id', '2018-04-07 15:51:06.640692 7530'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5786', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5786', 'task_id': '2018-04-07 15:50:51.681105 5786'}, 54)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '84567'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['the'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5784', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5784', 'correlation_id': '2018-04-07 15:50:51.681105 5784', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '84567'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '84673'), ('function', 'dequeue_task'), ('message_id', '84673'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '84673'), ('message_id', '2018-04-07 15:51:06.804317 7548'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5787', 'function': 'tasks.mapper', 'args': ("Wolf's",), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5787', 'task_id': '2018-04-07 15:50:51.681105 5787'}, 53)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '84673'), ('message_id', '2018-04-07 15:51:06.804317 7548'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5787', 'function': 'tasks.mapper', 'args': ("Wolf's",), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5787', 'task_id': '2018-04-07 15:50:51.681105 5787'}, 53)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '84978'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Lamb', 1], 'function': 'tasks.mapper', 'args': ['Lamb'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5785', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5785', 'correlation_id': '2018-04-07 15:50:51.681105 5785', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '84978'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '85083'), ('function', 'dequeue_task'), ('message_id', '85083'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '85083'), ('message_id', '2018-04-07 15:51:07.134785 7585'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5788', 'function': 'tasks.mapper', 'args': ('right',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5788', 'task_id': '2018-04-07 15:50:51.681105 5788'}, 52)), ('sender', 'Client_366')])
+    
+    
+    Sending 500 bytes
+    Message:
+    OrderedDict([('correlation_id', '85083'), ('message_id', '2018-04-07 15:51:07.134785 7585'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5788', 'function': 'tasks.mapper', 'args': ('right',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5788', 'task_id': '2018-04-07 15:50:51.681105 5788'}, 52)), ('sender', 'Client_366')])
+    
+    
+    Data received: 547 bytes
+    Message:
+    OrderedDict([('correlation_id', '85219'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ["Wolf's", 1], 'function': 'tasks.mapper', 'args': ["Wolf's"], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5787', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5787', 'correlation_id': '2018-04-07 15:50:51.681105 5787', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '85219'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '85327'), ('function', 'dequeue_task'), ('message_id', '85327'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '85327'), ('message_id', '2018-04-07 15:51:07.506928 7628'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5789', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5789', 'task_id': '2018-04-07 15:50:51.681105 5789'}, 51)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '85327'), ('message_id', '2018-04-07 15:51:07.506928 7628'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5789', 'function': 'tasks.mapper', 'args': ('to',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5789', 'task_id': '2018-04-07 15:50:51.681105 5789'}, 51)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '85193'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['the'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5786', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5786', 'correlation_id': '2018-04-07 15:50:51.681105 5786', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '85193'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '85298'), ('function', 'dequeue_task'), ('message_id', '85298'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '85298'), ('message_id', '2018-04-07 15:51:07.856636 7666'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5790', 'function': 'tasks.mapper', 'args': ('eat',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5790', 'task_id': '2018-04-07 15:50:51.681105 5790'}, 50)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '85298'), ('message_id', '2018-04-07 15:51:07.856636 7666'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5790', 'function': 'tasks.mapper', 'args': ('eat',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5790', 'task_id': '2018-04-07 15:50:51.681105 5790'}, 50)), ('sender', 'Client_366')])
+    
+    
+    Data received: 545 bytes
+    Message:
+    OrderedDict([('correlation_id', '85822'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['right', 1], 'function': 'tasks.mapper', 'args': ['right'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5788', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5788', 'correlation_id': '2018-04-07 15:50:51.681105 5788', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '85822'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '85930'), ('function', 'dequeue_task'), ('message_id', '85930'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '85930'), ('message_id', '2018-04-07 15:51:08.207527 7707'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5791', 'function': 'tasks.mapper', 'args': ('him',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5791', 'task_id': '2018-04-07 15:50:51.681105 5791'}, 49)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '85930'), ('message_id', '2018-04-07 15:51:08.207527 7707'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5791', 'function': 'tasks.mapper', 'args': ('him',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5791', 'task_id': '2018-04-07 15:50:51.681105 5791'}, 49)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '86048'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['to'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5789', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5789', 'correlation_id': '2018-04-07 15:50:51.681105 5789', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '86048'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '86153'), ('function', 'dequeue_task'), ('message_id', '86153'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '86153'), ('message_id', '2018-04-07 15:51:08.711226 7764'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5792', 'function': 'tasks.mapper', 'args': ('He',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5792', 'task_id': '2018-04-07 15:50:51.681105 5792'}, 48)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '86153'), ('message_id', '2018-04-07 15:51:08.711226 7764'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5792', 'function': 'tasks.mapper', 'args': ('He',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5792', 'task_id': '2018-04-07 15:50:51.681105 5792'}, 48)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '86226'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['eat'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5790', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5790', 'correlation_id': '2018-04-07 15:50:51.681105 5790', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '86226'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '86331'), ('function', 'dequeue_task'), ('message_id', '86331'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '86331'), ('message_id', '2018-04-07 15:51:09.258812 7828'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5793', 'function': 'tasks.mapper', 'args': ('thus',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5793', 'task_id': '2018-04-07 15:50:51.681105 5793'}, 47)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '86331'), ('message_id', '2018-04-07 15:51:09.258812 7828'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5793', 'function': 'tasks.mapper', 'args': ('thus',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5793', 'task_id': '2018-04-07 15:50:51.681105 5793'}, 47)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '86845'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['him'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5791', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5791', 'correlation_id': '2018-04-07 15:50:51.681105 5791', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '86845'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '86951'), ('function', 'dequeue_task'), ('message_id', '86951'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '86951'), ('message_id', '2018-04-07 15:51:09.581023 7864'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5794', 'function': 'tasks.mapper', 'args': ('addressed',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5794', 'task_id': '2018-04-07 15:50:51.681105 5794'}, 46)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    
+    Sending 504 bytes
+    Message:
+    OrderedDict([('correlation_id', '87532'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['He'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5792', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5792', 'correlation_id': '2018-04-07 15:50:51.681105 5792', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '87532'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    Message:
+    OrderedDict([('correlation_id', '86951'), ('message_id', '2018-04-07 15:51:09.581023 7864'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5794', 'function': 'tasks.mapper', 'args': ('addressed',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5794', 'task_id': '2018-04-07 15:50:51.681105 5794'}, 46)), ('sender', 'Client_366')])
+    
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '87638'), ('function', 'dequeue_task'), ('message_id', '87638'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '87638'), ('message_id', '2018-04-07 15:51:09.878938 7897'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5795', 'function': 'tasks.mapper', 'args': ('him:',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5795', 'task_id': '2018-04-07 15:50:51.681105 5795'}, 45)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '87638'), ('message_id', '2018-04-07 15:51:09.878938 7897'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5795', 'function': 'tasks.mapper', 'args': ('him:',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5795', 'task_id': '2018-04-07 15:50:51.681105 5795'}, 45)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '87786'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['thus', 1], 'function': 'tasks.mapper', 'args': ['thus'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5793', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5793', 'correlation_id': '2018-04-07 15:50:51.681105 5793', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '87786'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '87895'), ('function', 'dequeue_task'), ('message_id', '87895'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '87895'), ('message_id', '2018-04-07 15:51:10.452137 7962'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5796', 'function': 'tasks.mapper', 'args': ('"Sirrah',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5796', 'task_id': '2018-04-07 15:50:51.681105 5796'}, 44)), ('sender', 'Client_366')])
+    
+    
+    Sending 503 bytes
+    Message:
+    OrderedDict([('correlation_id', '87895'), ('message_id', '2018-04-07 15:51:10.452137 7962'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5796', 'function': 'tasks.mapper', 'args': ('"Sirrah',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5796', 'task_id': '2018-04-07 15:50:51.681105 5796'}, 44)), ('sender', 'Client_366')])
+    
+    
+    Data received: 553 bytes
+    Message:
+    OrderedDict([('correlation_id', '88433'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['addressed', 1], 'function': 'tasks.mapper', 'args': ['addressed'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5794', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5794', 'correlation_id': '2018-04-07 15:50:51.681105 5794', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '88433'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '88541'), ('function', 'dequeue_task'), ('message_id', '88541'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '88541'), ('message_id', '2018-04-07 15:51:10.870191 8011'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5797', 'function': 'tasks.mapper', 'args': ('last',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5797', 'task_id': '2018-04-07 15:50:51.681105 5797'}, 43)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '88541'), ('message_id', '2018-04-07 15:51:10.870191 8011'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5797', 'function': 'tasks.mapper', 'args': ('last',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5797', 'task_id': '2018-04-07 15:50:51.681105 5797'}, 43)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '88393'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['him:', 1], 'function': 'tasks.mapper', 'args': ['him:'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5795', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5795', 'correlation_id': '2018-04-07 15:50:51.681105 5795', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '88393'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '88500'), ('function', 'dequeue_task'), ('message_id', '88500'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '88500'), ('message_id', '2018-04-07 15:51:11.350839 8061'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5798', 'function': 'tasks.mapper', 'args': ('year',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5798', 'task_id': '2018-04-07 15:50:51.681105 5798'}, 42)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '88500'), ('message_id', '2018-04-07 15:51:11.350839 8061'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5798', 'function': 'tasks.mapper', 'args': ('year',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5798', 'task_id': '2018-04-07 15:50:51.681105 5798'}, 42)), ('sender', 'Client_366')])
+    
+    
+    Data received: 551 bytes
+    Message:
+    OrderedDict([('correlation_id', '88825'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['"Sirrah', 1], 'function': 'tasks.mapper', 'args': ['"Sirrah'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5796', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5796', 'correlation_id': '2018-04-07 15:50:51.681105 5796', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '88825'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '88934'), ('function', 'dequeue_task'), ('message_id', '88934'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '88934'), ('message_id', '2018-04-07 15:51:11.560387 8080'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5799', 'function': 'tasks.mapper', 'args': ('you',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5799', 'task_id': '2018-04-07 15:50:51.681105 5799'}, 41)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '88934'), ('message_id', '2018-04-07 15:51:11.560387 8080'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5799', 'function': 'tasks.mapper', 'args': ('you',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5799', 'task_id': '2018-04-07 15:50:51.681105 5799'}, 41)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '89746'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['last', 1], 'function': 'tasks.mapper', 'args': ['last'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5797', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5797', 'correlation_id': '2018-04-07 15:50:51.681105 5797', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '89746'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '89853'), ('function', 'dequeue_task'), ('message_id', '89853'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '89853'), ('message_id', '2018-04-07 15:51:12.050897 8131'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5800', 'function': 'tasks.mapper', 'args': ('grossly',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5800', 'task_id': '2018-04-07 15:50:51.681105 5800'}, 40)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    Message:
+    OrderedDict([('correlation_id', '89853'), ('message_id', '2018-04-07 15:51:12.050897 8131'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5800', 'function': 'tasks.mapper', 'args': ('grossly',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5800', 'task_id': '2018-04-07 15:50:51.681105 5800'}, 40)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '90105'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['you'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5799', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5799', 'correlation_id': '2018-04-07 15:50:51.681105 5799', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '90105'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '90210'), ('function', 'dequeue_task'), ('message_id', '90210'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '90210'), ('message_id', '2018-04-07 15:51:12.217306 8146'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5801', 'function': 'tasks.mapper', 'args': ('grossly',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5801', 'task_id': '2018-04-07 15:50:51.681105 5801'}, 39)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    Message:
+    OrderedDict([('correlation_id', '90210'), ('message_id', '2018-04-07 15:51:12.217306 8146'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5801', 'function': 'tasks.mapper', 'args': ('grossly',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5801', 'task_id': '2018-04-07 15:50:51.681105 5801'}, 39)), ('sender', 'Client_366')])
+    
+    Data received: 543 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '89807'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['year', 1], 'function': 'tasks.mapper', 'args': ['year'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5798', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5798', 'correlation_id': '2018-04-07 15:50:51.681105 5798', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '89807'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '89915'), ('function', 'dequeue_task'), ('message_id', '89915'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '89915'), ('message_id', '2018-04-07 15:51:12.360997 8161'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5802', 'function': 'tasks.mapper', 'args': ('insulted',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5802', 'task_id': '2018-04-07 15:50:51.681105 5802'}, 38)), ('sender', 'Client_366')])
+    
+    
+    Sending 503 bytes
+    Message:
+    OrderedDict([('correlation_id', '89915'), ('message_id', '2018-04-07 15:51:12.360997 8161'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5802', 'function': 'tasks.mapper', 'args': ('insulted',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5802', 'task_id': '2018-04-07 15:50:51.681105 5802'}, 38)), ('sender', 'Client_366')])
+    
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '90499'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['grossly', 1], 'function': 'tasks.mapper', 'args': ['grossly'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5800', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5800', 'correlation_id': '2018-04-07 15:50:51.681105 5800', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '90499'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '90606'), ('function', 'dequeue_task'), ('message_id', '90606'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '90606'), ('message_id', '2018-04-07 15:51:12.761299 8199'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5803', 'function': 'tasks.mapper', 'args': ('me"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5803', 'task_id': '2018-04-07 15:50:51.681105 5803'}, 37)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '90606'), ('message_id', '2018-04-07 15:51:12.761299 8199'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5803', 'function': 'tasks.mapper', 'args': ('me"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5803', 'task_id': '2018-04-07 15:50:51.681105 5803'}, 37)), ('sender', 'Client_366')])
+    
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '90587'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['grossly', 1], 'function': 'tasks.mapper', 'args': ['grossly'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5801', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5801', 'correlation_id': '2018-04-07 15:50:51.681105 5801', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '90587'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '90696'), ('function', 'dequeue_task'), ('message_id', '90696'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '90696'), ('message_id', '2018-04-07 15:51:12.925340 8215'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5804', 'function': 'tasks.mapper', 'args': ('"Indeed"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5804', 'task_id': '2018-04-07 15:50:51.681105 5804'}, 36)), ('sender', 'Client_366')])
+    
+    
+    Sending 505 bytes
+    Message:
+    OrderedDict([('correlation_id', '90696'), ('message_id', '2018-04-07 15:51:12.925340 8215'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5804', 'function': 'tasks.mapper', 'args': ('"Indeed"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5804', 'task_id': '2018-04-07 15:50:51.681105 5804'}, 36)), ('sender', 'Client_366')])
+    
+    
+    Data received: 551 bytes
+    Message:
+    OrderedDict([('correlation_id', '91044'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['insulted', 1], 'function': 'tasks.mapper', 'args': ['insulted'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5802', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5802', 'correlation_id': '2018-04-07 15:50:51.681105 5802', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '91044'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '91153'), ('function', 'dequeue_task'), ('message_id', '91153'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '91153'), ('message_id', '2018-04-07 15:51:13.217115 8243'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5805', 'function': 'tasks.mapper', 'args': ('bleated',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5805', 'task_id': '2018-04-07 15:50:51.681105 5805'}, 35)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    Message:
+    OrderedDict([('correlation_id', '91153'), ('message_id', '2018-04-07 15:51:13.217115 8243'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5805', 'function': 'tasks.mapper', 'args': ('bleated',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5805', 'task_id': '2018-04-07 15:50:51.681105 5805'}, 35)), ('sender', 'Client_366')])
+    
+    
+    Data received: 536 bytes
+    Message:
+    OrderedDict([('correlation_id', '91304'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['me"'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5803', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5803', 'correlation_id': '2018-04-07 15:50:51.681105 5803', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '91304'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '91409'), ('function', 'dequeue_task'), ('message_id', '91409'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '91409'), ('message_id', '2018-04-07 15:51:13.514433 8271'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5806', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5806', 'task_id': '2018-04-07 15:50:51.681105 5806'}, 34)), ('sender', 'Client_366')])
+    
+    Data received: 555 bytes
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '91409'), ('message_id', '2018-04-07 15:51:13.514433 8271'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5806', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5806', 'task_id': '2018-04-07 15:50:51.681105 5806'}, 34)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '91316'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['"Indeed"', 1], 'function': 'tasks.mapper', 'args': ['"Indeed"'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5804', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5804', 'correlation_id': '2018-04-07 15:50:51.681105 5804', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '91316'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '91427'), ('function', 'dequeue_task'), ('message_id', '91427'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '91427'), ('message_id', '2018-04-07 15:51:13.663089 8284'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5807', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5807', 'task_id': '2018-04-07 15:50:51.681105 5807'}, 33)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '91427'), ('message_id', '2018-04-07 15:51:13.663089 8284'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5807', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5807', 'task_id': '2018-04-07 15:50:51.681105 5807'}, 33)), ('sender', 'Client_366')])
+    
+    Data received: 549 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '91620'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['bleated', 1], 'function': 'tasks.mapper', 'args': ['bleated'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5805', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5805', 'correlation_id': '2018-04-07 15:50:51.681105 5805', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '91620'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '91728'), ('function', 'dequeue_task'), ('message_id', '91728'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '91728'), ('message_id', '2018-04-07 15:51:13.831559 8299'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5808', 'function': 'tasks.mapper', 'args': ('in',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5808', 'task_id': '2018-04-07 15:50:51.681105 5808'}, 32)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '91728'), ('message_id', '2018-04-07 15:51:13.831559 8299'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5808', 'function': 'tasks.mapper', 'args': ('in',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5808', 'task_id': '2018-04-07 15:50:51.681105 5808'}, 32)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '92099'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['the'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5806', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5806', 'correlation_id': '2018-04-07 15:50:51.681105 5806', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '92099'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '92206'), ('function', 'dequeue_task'), ('message_id', '92206'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '92206'), ('message_id', '2018-04-07 15:51:14.343843 8352'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5809', 'function': 'tasks.mapper', 'args': ('a',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5809', 'task_id': '2018-04-07 15:50:51.681105 5809'}, 31)), ('sender', 'Client_366')])
+    
+    
+    Sending 496 bytes
+    Message:
+    OrderedDict([('correlation_id', '92206'), ('message_id', '2018-04-07 15:51:14.343843 8352'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5809', 'function': 'tasks.mapper', 'args': ('a',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5809', 'task_id': '2018-04-07 15:50:51.681105 5809'}, 31)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '92272'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['in'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5808', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5808', 'correlation_id': '2018-04-07 15:50:51.681105 5808', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '92272'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '92377'), ('function', 'dequeue_task'), ('message_id', '92377'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '92377'), ('message_id', '2018-04-07 15:51:14.725026 8393'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5810', 'function': 'tasks.mapper', 'args': ('mournful',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5810', 'task_id': '2018-04-07 15:50:51.681105 5810'}, 30)), ('sender', 'Client_366')])
+    
+    
+    Sending 503 bytes
+    Message:
+    OrderedDict([('correlation_id', '92377'), ('message_id', '2018-04-07 15:51:14.725026 8393'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5810', 'function': 'tasks.mapper', 'args': ('mournful',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5810', 'task_id': '2018-04-07 15:50:51.681105 5810'}, 30)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '92464'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Lamb', 1], 'function': 'tasks.mapper', 'args': ['Lamb'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5807', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5807', 'correlation_id': '2018-04-07 15:50:51.681105 5807', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '92464'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '92571'), ('function', 'dequeue_task'), ('message_id', '92571'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '92571'), ('message_id', '2018-04-07 15:51:15.238132 8450'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5811', 'function': 'tasks.mapper', 'args': ('tone',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5811', 'task_id': '2018-04-07 15:50:51.681105 5811'}, 29)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '92571'), ('message_id', '2018-04-07 15:51:15.238132 8450'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5811', 'function': 'tasks.mapper', 'args': ('tone',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5811', 'task_id': '2018-04-07 15:50:51.681105 5811'}, 29)), ('sender', 'Client_366')])
+    
+    
+    Data received: 533 bytes
+    Message:
+    OrderedDict([('correlation_id', '93063'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['a'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5809', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5809', 'correlation_id': '2018-04-07 15:50:51.681105 5809', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '93063'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '93168'), ('function', 'dequeue_task'), ('message_id', '93168'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '93168'), ('message_id', '2018-04-07 15:51:15.539740 8479'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5812', 'function': 'tasks.mapper', 'args': ('of',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5812', 'task_id': '2018-04-07 15:50:51.681105 5812'}, 28)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '93168'), ('message_id', '2018-04-07 15:51:15.539740 8479'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5812', 'function': 'tasks.mapper', 'args': ('of',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5812', 'task_id': '2018-04-07 15:50:51.681105 5812'}, 28)), ('sender', 'Client_366')])
+    
+    
+    Data received: 551 bytes
+    Message:
+    OrderedDict([('correlation_id', '93455'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['mournful', 1], 'function': 'tasks.mapper', 'args': ['mournful'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5810', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5810', 'correlation_id': '2018-04-07 15:50:51.681105 5810', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '93455'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '93564'), ('function', 'dequeue_task'), ('message_id', '93564'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '93564'), ('message_id', '2018-04-07 15:51:15.801118 8503'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5813', 'function': 'tasks.mapper', 'args': ('voice',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5813', 'task_id': '2018-04-07 15:50:51.681105 5813'}, 27)), ('sender', 'Client_366')])
+    
+    
+    Sending 500 bytes
+    Message:
+    OrderedDict([('correlation_id', '93564'), ('message_id', '2018-04-07 15:51:15.801118 8503'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5813', 'function': 'tasks.mapper', 'args': ('voice',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5813', 'task_id': '2018-04-07 15:50:51.681105 5813'}, 27)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '93784'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['tone', 1], 'function': 'tasks.mapper', 'args': ['tone'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5811', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5811', 'correlation_id': '2018-04-07 15:50:51.681105 5811', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '93784'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '93891'), ('function', 'dequeue_task'), ('message_id', '93891'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '93891'), ('message_id', '2018-04-07 15:51:16.031925 8524'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5814', 'function': 'tasks.mapper', 'args': ('"I',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5814', 'task_id': '2018-04-07 15:50:51.681105 5814'}, 26)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '93891'), ('message_id', '2018-04-07 15:51:16.031925 8524'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5814', 'function': 'tasks.mapper', 'args': ('"I',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5814', 'task_id': '2018-04-07 15:50:51.681105 5814'}, 26)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '94140'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['of'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5812', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5812', 'correlation_id': '2018-04-07 15:50:51.681105 5812', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '94140'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '94245'), ('function', 'dequeue_task'), ('message_id', '94245'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '94245'), ('message_id', '2018-04-07 15:51:16.386727 8563'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5815', 'function': 'tasks.mapper', 'args': ('was',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5815', 'task_id': '2018-04-07 15:50:51.681105 5815'}, 25)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    
+    Data received: 545 bytesMessage:
+    OrderedDict([('correlation_id', '94245'), ('message_id', '2018-04-07 15:51:16.386727 8563'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5815', 'function': 'tasks.mapper', 'args': ('was',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5815', 'task_id': '2018-04-07 15:50:51.681105 5815'}, 25)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '94314'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['voice', 1], 'function': 'tasks.mapper', 'args': ['voice'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5813', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5813', 'correlation_id': '2018-04-07 15:50:51.681105 5813', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '94314'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '94421'), ('function', 'dequeue_task'), ('message_id', '94421'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '94421'), ('message_id', '2018-04-07 15:51:16.651213 8588'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5816', 'function': 'tasks.mapper', 'args': ('not',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5816', 'task_id': '2018-04-07 15:50:51.681105 5816'}, 24)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    
+    Data received: 535 bytesMessage:
+    OrderedDict([('correlation_id', '94421'), ('message_id', '2018-04-07 15:51:16.651213 8588'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5816', 'function': 'tasks.mapper', 'args': ('not',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5816', 'task_id': '2018-04-07 15:50:51.681105 5816'}, 24)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '94433'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['"I'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5814', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5814', 'correlation_id': '2018-04-07 15:50:51.681105 5814', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '94433'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '94540'), ('function', 'dequeue_task'), ('message_id', '94540'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '94540'), ('message_id', '2018-04-07 15:51:16.896905 8611'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5817', 'function': 'tasks.mapper', 'args': ('then',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5817', 'task_id': '2018-04-07 15:50:51.681105 5817'}, 23)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '94540'), ('message_id', '2018-04-07 15:51:16.896905 8611'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5817', 'function': 'tasks.mapper', 'args': ('then',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5817', 'task_id': '2018-04-07 15:50:51.681105 5817'}, 23)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '95103'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['was'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5815', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5815', 'correlation_id': '2018-04-07 15:50:51.681105 5815', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '95103'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '95208'), ('function', 'dequeue_task'), ('message_id', '95208'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '95208'), ('message_id', '2018-04-07 15:51:17.280001 8650'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5818', 'function': 'tasks.mapper', 'args': ('born"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5818', 'task_id': '2018-04-07 15:50:51.681105 5818'}, 22)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '95208'), ('message_id', '2018-04-07 15:51:17.280001 8650'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5818', 'function': 'tasks.mapper', 'args': ('born"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5818', 'task_id': '2018-04-07 15:50:51.681105 5818'}, 22)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '95313'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['then', 1], 'function': 'tasks.mapper', 'args': ['then'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5817', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5817', 'correlation_id': '2018-04-07 15:50:51.681105 5817', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '95313'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '95421'), ('function', 'dequeue_task'), ('message_id', '95421'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '95421'), ('message_id', '2018-04-07 15:51:17.477570 8670'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5819', 'function': 'tasks.mapper', 'args': ('Then',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5819', 'task_id': '2018-04-07 15:50:51.681105 5819'}, 21)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '95421'), ('message_id', '2018-04-07 15:51:17.477570 8670'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5819', 'function': 'tasks.mapper', 'args': ('Then',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5819', 'task_id': '2018-04-07 15:50:51.681105 5819'}, 21)), ('sender', 'Client_366')])
+    
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '95336'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['not'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5816', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5816', 'correlation_id': '2018-04-07 15:50:51.681105 5816', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '95336'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '95440'), ('function', 'dequeue_task'), ('message_id', '95440'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '95440'), ('message_id', '2018-04-07 15:51:17.708881 8693'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5820', 'function': 'tasks.mapper', 'args': ('said',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5820', 'task_id': '2018-04-07 15:50:51.681105 5820'}, 20)), ('sender', 'Client_366')])
+    
+    
+    Data received: 547 bytes
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '95440'), ('message_id', '2018-04-07 15:51:17.708881 8693'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5820', 'function': 'tasks.mapper', 'args': ('said',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5820', 'task_id': '2018-04-07 15:50:51.681105 5820'}, 20)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '95741'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['born"', 1], 'function': 'tasks.mapper', 'args': ['born"'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5818', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5818', 'correlation_id': '2018-04-07 15:50:51.681105 5818', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '95741'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '95850'), ('function', 'dequeue_task'), ('message_id', '95850'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '95850'), ('message_id', '2018-04-07 15:51:17.818408 8703'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5821', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5821', 'task_id': '2018-04-07 15:50:51.681105 5821'}, 19)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '95850'), ('message_id', '2018-04-07 15:51:17.818408 8703'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5821', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5821', 'task_id': '2018-04-07 15:50:51.681105 5821'}, 19)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '95907'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Then', 1], 'function': 'tasks.mapper', 'args': ['Then'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5819', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5819', 'correlation_id': '2018-04-07 15:50:51.681105 5819', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '95907'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '96014'), ('function', 'dequeue_task'), ('message_id', '96014'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '96014'), ('message_id', '2018-04-07 15:51:18.090008 8729'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5822', 'function': 'tasks.mapper', 'args': ('Wolf',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5822', 'task_id': '2018-04-07 15:50:51.681105 5822'}, 18)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '96014'), ('message_id', '2018-04-07 15:51:18.090008 8729'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5822', 'function': 'tasks.mapper', 'args': ('Wolf',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5822', 'task_id': '2018-04-07 15:50:51.681105 5822'}, 18)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '96131'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['said', 1], 'function': 'tasks.mapper', 'args': ['said'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5820', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5820', 'correlation_id': '2018-04-07 15:50:51.681105 5820', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '96131'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '96239'), ('function', 'dequeue_task'), ('message_id', '96239'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '96239'), ('message_id', '2018-04-07 15:51:18.302117 8749'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5823', 'function': 'tasks.mapper', 'args': ('"You',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5823', 'task_id': '2018-04-07 15:50:51.681105 5823'}, 17)), ('sender', 'Client_366')])
+    
+    
+    Sending 500 bytes
+    Message:
+    OrderedDict([('correlation_id', '96239'), ('message_id', '2018-04-07 15:51:18.302117 8749'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5823', 'function': 'tasks.mapper', 'args': ('"You',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5823', 'task_id': '2018-04-07 15:50:51.681105 5823'}, 17)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '96464'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Wolf', 1], 'function': 'tasks.mapper', 'args': ['Wolf'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5822', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5822', 'correlation_id': '2018-04-07 15:50:51.681105 5822', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '96464'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '96570'), ('function', 'dequeue_task'), ('message_id', '96570'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '96570'), ('message_id', '2018-04-07 15:51:18.791885 8802'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5824', 'function': 'tasks.mapper', 'args': ('feed',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5824', 'task_id': '2018-04-07 15:50:51.681105 5824'}, 16)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    
+    Data received: 535 bytes
+    Message:
+    OrderedDict([('correlation_id', '96570'), ('message_id', '2018-04-07 15:51:18.791885 8802'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5824', 'function': 'tasks.mapper', 'args': ('feed',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5824', 'task_id': '2018-04-07 15:50:51.681105 5824'}, 16)), ('sender', 'Client_366')])
+    
+    Message:
+    OrderedDict([('correlation_id', '96280'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['the'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5821', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5821', 'correlation_id': '2018-04-07 15:50:51.681105 5821', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '96280'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '96386'), ('function', 'dequeue_task'), ('message_id', '96386'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '96386'), ('message_id', '2018-04-07 15:51:19.061699 8827'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5825', 'function': 'tasks.mapper', 'args': ('in',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5825', 'task_id': '2018-04-07 15:50:51.681105 5825'}, 15)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '96386'), ('message_id', '2018-04-07 15:51:19.061699 8827'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5825', 'function': 'tasks.mapper', 'args': ('in',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5825', 'task_id': '2018-04-07 15:50:51.681105 5825'}, 15)), ('sender', 'Client_366')])
+    
+    
+    Data received: 545 bytes
+    Message:
+    OrderedDict([('correlation_id', '96711'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['"You', 1], 'function': 'tasks.mapper', 'args': ['"You'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5823', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5823', 'correlation_id': '2018-04-07 15:50:51.681105 5823', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '96711'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '96820'), ('function', 'dequeue_task'), ('message_id', '96820'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '96820'), ('message_id', '2018-04-07 15:51:19.489773 8868'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5826', 'function': 'tasks.mapper', 'args': ('my',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5826', 'task_id': '2018-04-07 15:50:51.681105 5826'}, 14)), ('sender', 'Client_366')])
+    
+    
+    Sending 497 bytes
+    Message:
+    OrderedDict([('correlation_id', '96820'), ('message_id', '2018-04-07 15:51:19.489773 8868'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5826', 'function': 'tasks.mapper', 'args': ('my',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5826', 'task_id': '2018-04-07 15:50:51.681105 5826'}, 14)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '97227'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['feed', 1], 'function': 'tasks.mapper', 'args': ['feed'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5824', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5824', 'correlation_id': '2018-04-07 15:50:51.681105 5824', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '97227'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '97335'), ('function', 'dequeue_task'), ('message_id', '97335'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '97335'), ('message_id', '2018-04-07 15:51:19.784366 8894'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5827', 'function': 'tasks.mapper', 'args': ('pasture"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5827', 'task_id': '2018-04-07 15:50:51.681105 5827'}, 13)), ('sender', 'Client_366')])
+    
+    
+    Sending 504 bytes
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '97519'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['in'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5825', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5825', 'correlation_id': '2018-04-07 15:50:51.681105 5825', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '97519'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    Message:
+    OrderedDict([('correlation_id', '97335'), ('message_id', '2018-04-07 15:51:19.784366 8894'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5827', 'function': 'tasks.mapper', 'args': ('pasture"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5827', 'task_id': '2018-04-07 15:50:51.681105 5827'}, 13)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '97624'), ('function', 'dequeue_task'), ('message_id', '97624'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '97624'), ('message_id', '2018-04-07 15:51:19.949014 8908'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5828', 'function': 'tasks.mapper', 'args': ('"No',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5828', 'task_id': '2018-04-07 15:50:51.681105 5828'}, 12)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '97624'), ('message_id', '2018-04-07 15:51:19.949014 8908'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5828', 'function': 'tasks.mapper', 'args': ('"No',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5828', 'task_id': '2018-04-07 15:50:51.681105 5828'}, 12)), ('sender', 'Client_366')])
+    
+    
+    Data received: 553 bytes
+    Message:
+    OrderedDict([('correlation_id', '98152'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['pasture"', 1], 'function': 'tasks.mapper', 'args': ['pasture"'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5827', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5827', 'correlation_id': '2018-04-07 15:50:51.681105 5827', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '98152'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '98260'), ('function', 'dequeue_task'), ('message_id', '98260'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '98260'), ('message_id', '2018-04-07 15:51:20.389788 8957'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5829', 'function': 'tasks.mapper', 'args': ('good',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5829', 'task_id': '2018-04-07 15:50:51.681105 5829'}, 11)), ('sender', 'Client_366')])
+    
+    Data received: 536 bytes
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '98382'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['"No'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5828', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5828', 'correlation_id': '2018-04-07 15:50:51.681105 5828', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '98382'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    Message:
+    OrderedDict([('correlation_id', '98260'), ('message_id', '2018-04-07 15:51:20.389788 8957'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5829', 'function': 'tasks.mapper', 'args': ('good',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5829', 'task_id': '2018-04-07 15:50:51.681105 5829'}, 11)), ('sender', 'Client_366')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '98486'), ('function', 'dequeue_task'), ('message_id', '98486'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '98486'), ('message_id', '2018-04-07 15:51:20.526386 8970'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5830', 'function': 'tasks.mapper', 'args': ('sir"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5830', 'task_id': '2018-04-07 15:50:51.681105 5830'}, 10)), ('sender', 'Client_366')])
+    
+    
+    Sending 500 bytes
+    Message:
+    OrderedDict([('correlation_id', '98486'), ('message_id', '2018-04-07 15:51:20.526386 8970'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5830', 'function': 'tasks.mapper', 'args': ('sir"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5830', 'task_id': '2018-04-07 15:50:51.681105 5830'}, 10)), ('sender', 'Client_366')])
+    
+    
+    Data received: 534 bytes
+    Message:
+    OrderedDict([('correlation_id', '98491'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['my'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5826', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5826', 'correlation_id': '2018-04-07 15:50:51.681105 5826', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '98491'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '98597'), ('function', 'dequeue_task'), ('message_id', '98597'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '98597'), ('message_id', '2018-04-07 15:51:21.024211 9019'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5831', 'function': 'tasks.mapper', 'args': ('grossly',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5831', 'task_id': '2018-04-07 15:50:51.681105 5831'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '98597'), ('message_id', '2018-04-07 15:51:21.024211 9019'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5831', 'function': 'tasks.mapper', 'args': ('grossly',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5831', 'task_id': '2018-04-07 15:50:51.681105 5831'}, 9)), ('sender', 'Client_366')])
+    
+    
+    Data received: 543 bytes
+    Message:
+    OrderedDict([('correlation_id', '99112'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['good', 1], 'function': 'tasks.mapper', 'args': ['good'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5829', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5829', 'correlation_id': '2018-04-07 15:50:51.681105 5829', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '99112'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '99218'), ('function', 'dequeue_task'), ('message_id', '99218'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '99218'), ('message_id', '2018-04-07 15:51:21.397347 9062'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5832', 'function': 'tasks.mapper', 'args': ('replied',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5832', 'task_id': '2018-04-07 15:50:51.681105 5832'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '99218'), ('message_id', '2018-04-07 15:51:21.397347 9062'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5832', 'function': 'tasks.mapper', 'args': ('replied',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5832', 'task_id': '2018-04-07 15:50:51.681105 5832'}, 8)), ('sender', 'Client_366')])
+    
+    
+    Data received: 545 bytes
+    Message:
+    OrderedDict([('correlation_id', '99192'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['sir"', 1], 'function': 'tasks.mapper', 'args': ['sir"'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5830', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5830', 'correlation_id': '2018-04-07 15:50:51.681105 5830', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '99192'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '99299'), ('function', 'dequeue_task'), ('message_id', '99299'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '99299'), ('message_id', '2018-04-07 15:51:21.738202 9098'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5833', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5833', 'task_id': '2018-04-07 15:50:51.681105 5833'}, 7)), ('sender', 'Client_366')])
+    
+    Data received: 549 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '99648'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['grossly', 1], 'function': 'tasks.mapper', 'args': ['grossly'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5831', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5831', 'correlation_id': '2018-04-07 15:50:51.681105 5831', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '99648'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Sending 497 bytes
+    
+    Data received: 223 bytes
+    Message:
+    OrderedDict([('correlation_id', '99299'), ('message_id', '2018-04-07 15:51:21.738202 9098'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5833', 'function': 'tasks.mapper', 'args': ('the',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5833', 'task_id': '2018-04-07 15:50:51.681105 5833'}, 7)), ('sender', 'Client_366')])
+    Message:
+    OrderedDict([('correlation_id', '99755'), ('function', 'dequeue_task'), ('message_id', '99755'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '99755'), ('message_id', '2018-04-07 15:51:21.780573 9103'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5834', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5834', 'task_id': '2018-04-07 15:50:51.681105 5834'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    
+    Message:
+    OrderedDict([('correlation_id', '99755'), ('message_id', '2018-04-07 15:51:21.780573 9103'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5834', 'function': 'tasks.mapper', 'args': ('Lamb',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5834', 'task_id': '2018-04-07 15:50:51.681105 5834'}, 6)), ('sender', 'Client_366')])
+    
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '99987'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['replied', 1], 'function': 'tasks.mapper', 'args': ['replied'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5832', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5832', 'correlation_id': '2018-04-07 15:50:51.681105 5832', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '99987'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '100095'), ('function', 'dequeue_task'), ('message_id', '100095'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '100095'), ('message_id', '2018-04-07 15:51:22.283832 9159'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5835', 'function': 'tasks.mapper', 'args': ('"I',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5835', 'task_id': '2018-04-07 15:50:51.681105 5835'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '100095'), ('message_id', '2018-04-07 15:51:22.283832 9159'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5835', 'function': 'tasks.mapper', 'args': ('"I',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5835', 'task_id': '2018-04-07 15:50:51.681105 5835'}, 5)), ('sender', 'Client_366')])
+    
+    
+    Data received: 537 bytes
+    Message:
+    OrderedDict([('correlation_id', '100261'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['the'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5833', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5833', 'correlation_id': '2018-04-07 15:50:51.681105 5833', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '100261'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 545 bytes
+    Message:
+    OrderedDict([('correlation_id', '100232'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['Lamb', 1], 'function': 'tasks.mapper', 'args': ['Lamb'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5834', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5834', 'correlation_id': '2018-04-07 15:50:51.681105 5834', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '100232'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '100339'), ('function', 'dequeue_task'), ('message_id', '100339'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '100339'), ('message_id', '2018-04-07 15:51:22.725991 9202'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5836', 'function': 'tasks.mapper', 'args': ('have',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5836', 'task_id': '2018-04-07 15:50:51.681105 5836'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Sending 499 bytes
+    Message:
+    OrderedDict([('correlation_id', '100339'), ('message_id', '2018-04-07 15:51:22.725991 9202'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5836', 'function': 'tasks.mapper', 'args': ('have',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5836', 'task_id': '2018-04-07 15:50:51.681105 5836'}, 4)), ('sender', 'Client_366')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '100368'), ('function', 'dequeue_task'), ('message_id', '100368'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '100368'), ('message_id', '2018-04-07 15:51:22.954503 9228'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5837', 'function': 'tasks.mapper', 'args': ('not',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5837', 'task_id': '2018-04-07 15:50:51.681105 5837'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '100368'), ('message_id', '2018-04-07 15:51:22.954503 9228'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5837', 'function': 'tasks.mapper', 'args': ('not',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5837', 'task_id': '2018-04-07 15:50:51.681105 5837'}, 3)), ('sender', 'Client_366')])
+    
+    
+    Data received: 537 bytes
+    Message:
+    OrderedDict([('correlation_id', '100667'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['"I'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5835', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5835', 'correlation_id': '2018-04-07 15:50:51.681105 5835', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '100667'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '100772'), ('function', 'dequeue_task'), ('message_id', '100772'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '100772'), ('message_id', '2018-04-07 15:51:23.473734 9279'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5838', 'function': 'tasks.mapper', 'args': ('yet',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5838', 'task_id': '2018-04-07 15:50:51.681105 5838'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Sending 498 bytes
+    Message:
+    OrderedDict([('correlation_id', '100772'), ('message_id', '2018-04-07 15:51:23.473734 9279'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5838', 'function': 'tasks.mapper', 'args': ('yet',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5838', 'task_id': '2018-04-07 15:50:51.681105 5838'}, 2)), ('sender', 'Client_366')])
+    
+    
+    Data received: 537 bytes
+    Message:
+    OrderedDict([('correlation_id', '101676'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['not'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5837', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5837', 'correlation_id': '2018-04-07 15:50:51.681105 5837', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '101676'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 545 bytes
+    Message:
+    OrderedDict([('correlation_id', '101625'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['have', 1], 'function': 'tasks.mapper', 'args': ['have'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5836', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5836', 'correlation_id': '2018-04-07 15:50:51.681105 5836', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '101625'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '101783'), ('function', 'dequeue_task'), ('message_id', '101783'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '101783'), ('message_id', '2018-04-07 15:51:24.078074 9345'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5839', 'function': 'tasks.mapper', 'args': ('tasted',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5839', 'task_id': '2018-04-07 15:50:51.681105 5839'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Sending 501 bytes
+    Message:
+    OrderedDict([('correlation_id', '101783'), ('message_id', '2018-04-07 15:51:24.078074 9345'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5839', 'function': 'tasks.mapper', 'args': ('tasted',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5839', 'task_id': '2018-04-07 15:50:51.681105 5839'}, 1)), ('sender', 'Client_366')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '101734'), ('function', 'dequeue_task'), ('message_id', '101734'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '101734'), ('message_id', '2018-04-07 15:51:24.184566 9354'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5840', 'function': 'tasks.mapper', 'args': ('grass"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5840', 'task_id': '2018-04-07 15:50:51.681105 5840'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 502 bytes
+    
+    Data received: 537 bytesMessage:
+    OrderedDict([('correlation_id', '101734'), ('message_id', '2018-04-07 15:51:24.184566 9354'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890a95'), ('reply_to', 'Client_366'), ('result', ({'sender': 'Client_366', 'message_type': 'function', 'message_id': '2018-04-07 15:50:51.681105 5840', 'function': 'tasks.mapper', 'args': ('grass"',), 'need_result': True, 'reply_to': 'Client_366', 'correlation_id': '2018-04-07 15:50:51.681105 5840', 'task_id': '2018-04-07 15:50:51.681105 5840'}, 0)), ('sender', 'Client_366')])
+    
+    
+    Message:
+    OrderedDict([('correlation_id', '101868'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': None, 'function': 'tasks.mapper', 'args': ['yet'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5838', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5838', 'correlation_id': '2018-04-07 15:50:51.681105 5838', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '101868'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '101974'), ('function', 'dequeue_task'), ('message_id', '101974'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890499'), ('sender', 'NodeMCU_b4e62d890499')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '101974'), ('message_id', '2018-04-07 15:51:24.509430 9379'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 210 bytes
+    Message:
+    OrderedDict([('correlation_id', '101974'), ('message_id', '2018-04-07 15:51:24.509430 9379'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d890499'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Data received: 549 bytes
+    Message:
+    OrderedDict([('correlation_id', '102548'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['tasted', 1], 'function': 'tasks.mapper', 'args': ['tasted'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5839', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5839', 'correlation_id': '2018-04-07 15:50:51.681105 5839', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '102548'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Data received: 225 bytes
+    Message:
+    OrderedDict([('correlation_id', '102656'), ('function', 'dequeue_task'), ('message_id', '102656'), ('message_type', 'function'), ('need_result', True), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d891371'), ('sender', 'NodeMCU_b4e62d891371')])
+    
+    
+    Processed result:
+    OrderedDict([('correlation_id', '102656'), ('message_id', '2018-04-07 15:51:24.717025 9397'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    
+    
+    Sending 210 bytes
+    
+    Data received: 551 bytes
+    Message:
+    OrderedDict([('correlation_id', '102656'), ('message_id', '2018-04-07 15:51:24.717025 9397'), ('message_type', 'result'), ('receiver', 'NodeMCU_b4e62d891371'), ('reply_to', 'Client_366'), ('result', (None, 0)), ('sender', 'Client_366')])
+    Message:
+    OrderedDict([('correlation_id', '102699'), ('function', 'enqueue_result'), ('kwargs', {'message': {'result': ['grass"', 1], 'function': 'tasks.mapper', 'args': ['grass"'], 'reply_to': 'Client_366', 'message_id': '2018-04-07 15:50:51.681105 5840', 'message_type': 'result', 'task_id': '2018-04-07 15:50:51.681105 5840', 'correlation_id': '2018-04-07 15:50:51.681105 5840', 'need_result': True, 'sender': 'Client_366'}}), ('message_id', '102699'), ('message_type', 'function'), ('receiver', 'Client_366'), ('reply_to', 'NodeMCU_b4e62d890a95'), ('sender', 'NodeMCU_b4e62d890a95')])
+    
+    
+    ********** result:
+    words count: 94
+    
+    [('Lamb', 5), ('grossly', 3), ('Wolf', 2), ('year', 1), ('with', 1), ('voice', 1), ('violent', 1), ('tone', 1), ('thus', 1), ('then', 1)]
+    **********
+    
+
+
+```python
+# Stopping
+the_client.stop()
+the_client = None
+print('\n[________________ Demo stopped ________________]\n')
+```
+
+    [Closed: ('123.240.210.68', 1883)]
+    
+    [________________ Demo stopped ________________]
+    
+    
