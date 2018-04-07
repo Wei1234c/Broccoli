@@ -70,7 +70,7 @@ proj.tasks.add(4, 4) | proj.tasks.mul(8) | proj.tasks.mul(10)
 >>> header = [add.s(i, i) for i in range(10)]
 >>> result = chord(header)(callback)
 >>> result.get()
-9900
+90
 ```
 上述的運算可以直接寫成：
 ```

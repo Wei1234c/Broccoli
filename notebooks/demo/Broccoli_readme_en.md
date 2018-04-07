@@ -15,7 +15,7 @@ Wei Lin
 - The importance of software  
   - There are many existing communication and software platforms, such as Kafka, Dask, Ipython Parallel, Celery, MQTT, etc., which can be used as a mechanism for communication and integration between cluster and distributed systems. There are many common design patterns, for example: controller/master/broker corresponds to nodes/workers/clients, the message queue and message-passing mechanism, and the structure of producer/queue/consumer or publisher/topic/subscriber. With these all combined, it is possible to build an elastic and robust computing platform for distributed/parallel operations. [Celery](http://www.celeryproject.org/) is one of the famous examples.  
 - Principles and Processes of Celery  
-  - Celery operates in a producer/queue/consumer paradigm. It follows the [AMQP](https://www.amqp.org/) protocol and can be used with some suites (eg RabbitMQ, Redis...) The function of providing task queues is described in detail in the [Celery documents](http://docs.celeryproject.org/en/latest/getting-started/index.html). Also refer to [this]( Https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) Easy-to-understand articles.  
+  - Celery operates in a producer/queue/consumer paradigm. It follows the [AMQP](https://www.amqp.org/) protocol and can be used with some suites (eg RabbitMQ, Redis...) The function of providing task queues is described in detail in the [Celery documents](http://docs.celeryproject.org/en/latest/getting-started/index.html). Also refer to [this]( Https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) easy-to-understand articles.  
 - Canvas is one of the cores of Celery  
   - Celery provides a sub-modules called [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html). Through Canvas it's easy to organize tasks into workflow and dispatch it to workers for processing all at once. The client only needs to wait for the final results.  
 - project goal:  
@@ -71,7 +71,7 @@ Its role can be illustrated by the following example. The result of the `header`
 >>> header = [add.s(i, i) for i in range(10)]
 >>> result = chord(header)(callback)
 >>> result.get()
-9900
+90
 ```
 The above operation can be written directly as:
 ```
