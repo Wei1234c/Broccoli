@@ -128,4 +128,5 @@ chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
 
 #### Reference:  
   1. [Celery On Docker Swarm](https://github.com/Wei1234c/CeleryOnDockerSwarm/blob/master/celery_projects/CeleryOnDockerSwarm.md)   
-  2. [Elastic Network of Things with MQTT and MicroPython](https://github.com/Wei1234c/Elastic_Network_of_Things_with_MQTT_and_MicroPython)
+  1. [IOT as Brain](https://github.com/Wei1234c/IOTasBrain)   
+  1. [Elastic Network of Things with MQTT and MicroPython](https://github.com/Wei1234c/Elastic_Network_of_Things_with_MQTT_and_MicroPython)

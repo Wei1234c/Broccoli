@@ -7,11 +7,11 @@ Wei Lin
 
 ![Broccoli](https://raw.githubusercontent.com/Wei1234c/Broccoli/master/jpgs/Broccoli_cluster_cover.gif)
 
-## [Motivation and Goal]
+## [Motivations and Goal]
 - Building cluster with Raspberry Pi  
   - For those who like DIY, it is very interesting to create a cluster. With the appearance of [Raspberry Pi](https://www.raspberrypi.org/), the cost of building a cluster is drastically reduced and many [examples](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved=0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732) of using the Raspberry Pi to create clusters can be found on the Internet.  
 - Relationship between cost and quantity  
-  - However, at present, a Raspberry Pi 3 still requires USD 35 or more, if you can build a cluster with a smaller machine, such as [ESP32](https://en.wikipedia.org/wiki/ESP32), so the cost of each node only requires USD 7 or so. Under the same budget, the lower the cost of a single node is, the more nodes can be, and it will be more ideal for some purposes.  
+  - However, at present, a Raspberry Pi 3 still costs USD 35 or more, if you can build a cluster with a smaller machine, such as [ESP32](https://en.wikipedia.org/wiki/ESP32), so the cost of each node only costs USD 7 or so. Under the same budget, the lower the cost of a single node is, the more nodes can be, and it will be more ideal for some purposes.  
 - The importance of software  
   - There are many existing communication and software platforms, such as Kafka, Dask, Ipython Parallel, Celery, MQTT, etc., which can be used as a mechanism for communication and integration between cluster and distributed systems. There are many common design patterns, for example: controller/master/broker corresponds to nodes/workers/clients, the message queue and message-passing mechanism, and the structure of producer/queue/consumer or publisher/topic/subscriber. With these all combined, it is possible to build an elastic and robust computing platform for distributed/parallel operations. [Celery](http://www.celeryproject.org/) is one of the famous examples.  
 - Principles and Processes of Celery  
@@ -21,7 +21,7 @@ Wei Lin
 - project goal:  
   - Therefore, the goal of this project is set as: Create a package, with which we can use pattern similar to Celery Canvas on the client side and dispatch tasks to the ESP32 cluster for processing.  
 
-## [Features]
+## [Design and Features]
 - Lower costs  
   - With ESP32 as a hardware platform, the cost of construction is lower.  
 - Symmetrical architecture  
@@ -38,7 +38,7 @@ Wei Lin
 
 ### Some Canvas functionalities:
 
-- **[Chains](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chains)** The main purpose is to cascade multiple operations, The result of previous operation is the parameter of the next operation. For example, the following example uses `chain` to perform ((4+4) * 8) * 10 = 640  
+- **[Chains](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chains)** The main purpose is to **cascade** multiple operations, The result of previous operation is the parameter of the next operation. For example, the following example uses `chain` to perform ((4+4) * 8) * 10 = 640  
 
 
 ```
@@ -51,7 +51,7 @@ Proj.tasks.add(4, 4) | proj.tasks.mul(8) | proj.tasks.mul(10)
 640
 ```
 
-- **[Groups](http://docs.celeryproject.org/en/latest/userguide/canvas.html#groups)** main purpose is to parallel multiple operations, sending multiple homogeneity tasks to many remote workers for processing, and then collect results returned by the workers, combine them into a set of results. For example, the following example uses `group` to calculate (2+2) and (4+4) simultaneously. The result is [4, 8]  
+- **[Groups](http://docs.celeryproject.org/en/latest/userguide/canvas.html#groups)** main purpose is to **parallel** multiple operations, sending multiple homogeneity tasks to many remote workers for processing, and then collect results returned by the workers, combine them into a set of results. For example, the following example uses `group` to calculate (2+2) and (4+4) simultaneously. The result is [4, 8]  
 
 ```
 >>> group(add.s(2, 2), add.s(4, 4))
@@ -89,7 +89,7 @@ The effect of `starmap` is the same as that of the `map` command. It will perfor
 [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
 ```
 
-- **[Chunks](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chunks)** is to cut a long list of data into a specified bins and distribute them to The workers. In the following example, a list is divided into 10 equal-length parts and dispatched to the workers for processing:
+- **[Chunks](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chunks)** is to split a long list of data into specified bins and distribute them to The workers. In the following example, a long list is divided into 10 equal-length segments and dispatched to the workers for processing:
 ```
 >>> res = add.chunks(zip(range(100), range(100)), 10)()
 >>> res.get()
@@ -125,5 +125,6 @@ The effect of `starmap` is the same as that of the `map` command. It will perfor
 
 
 #### Reference:
-  1. [Celery On Docker Swarm](https://github.com/Wei1234c/CeleryOnDockerSwarm/blob/master/celery_projects/CeleryOnDockerSwarm.md)  
-  2. [Elastic Network of Things with MQTT and MicroPython](https://github.com/Wei1234c/Elastic_Network_of_Things_with_MQTT_and_MicroPython)
+  1. [Celery On Docker Swarm](https://github.com/Wei1234c/CeleryOnDockerSwarm/blob/master/celery_projects/CeleryOnDockerSwarm.md)   
+  1. [IOT as Brain](https://github.com/Wei1234c/IOTasBrain)   
+  1. [Elastic Network of Things with MQTT and MicroPython](https://github.com/Wei1234c/Elastic_Network_of_Things_with_MQTT_and_MicroPython)
