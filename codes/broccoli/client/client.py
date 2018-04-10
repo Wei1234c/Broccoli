@@ -8,18 +8,18 @@ import threading
 # sys.path.append(os.path.abspath(os.path.join(os.path.pardir, 'hardware')))
 # sys.path.append(os.path.abspath(os.path.join(os.path.pardir, 'node')))
 
-import node
+import cluster_node
 
 
 class Client(threading.Thread):
     
     def __init__(self):        
         super().__init__(name = 'Client', daemon = True)
-        self.node = node.Node()
+        self.node = cluster_node.Node()
         self.status = self.node.broker.status
         self.node.broker.is_client = True
-        self.sync_file = self.node.broker.sync_file
-        self.reset_workers = self.node.broker.reset_workers
+        self.sync_file = self.node.sync_file
+        self.reset_workers = self.node.reset_workers
         
     def request(self, receiver, message):
         try:

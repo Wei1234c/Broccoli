@@ -22,8 +22,7 @@ def run():
 
     setup_wifi()
 
-    import node
+    import cluster_node as node
     node.main()
-
 
 run()

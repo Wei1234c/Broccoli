@@ -1,7 +1,5 @@
-import node
+import cluster_node as node
 
-# from celery.canvas import chain
-# from celery.result import ResultSet
 
 broker = node.Node.broker
 

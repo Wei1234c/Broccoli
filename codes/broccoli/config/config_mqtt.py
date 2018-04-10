@@ -1,17 +1,6 @@
 # coding: utf-8
 
-import sys
-
-# 'esp8266' or 'win32'
-# SYS_PLATFORM = sys.platform
-
-# 'micropython' or 'cpython'
-# SYS_IMPLEMENTATION = sys.implementation.name
-IS_MICROPYTHON = sys.implementation.name == 'micropython'
- 
-
 # DEBUG_MODE = True
-
 
 # Shared ************************
 HUB_PORT = 1883
@@ -39,7 +28,7 @@ USERNAME = 'USERNAME_for_mqtt_client'
 PASSWORD = 'PASSWORD_for_mqtt_client'
 MAX_INFLIGHT_MESSAGES = 1
 KEEPALIVE = 60
-QOS_LEVEL = 0  # change to QoS 0
+QOS_LEVEL = 0
 CLIENT_RETRY_TO_CONNECT_AFTER_SECONDS = 3
 CLIENT_RECEIVE_TIME_OUT_SECONDS = 5
 PING_BROKER_TO_KEEP_ALIVE_EVERY_CLIENT_RECEIVE_CYCLES = int((KEEPALIVE / CLIENT_RECEIVE_TIME_OUT_SECONDS) / 2)

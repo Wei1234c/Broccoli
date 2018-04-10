@@ -1,10 +1,10 @@
-import os
 import config_mqtt
+import config_identity
 import task_queues_manager
 import asynch_result
 
 
-if config_mqtt.IS_MICROPYTHON:
+if config_identity.IS_MICROPYTHON:
     import worker_upython as worker_impl
 else:
     import worker_cpython as worker_impl
@@ -22,28 +22,6 @@ class Broker(worker_impl.Worker):
         self.enqueue_task = self.task_queues_manager.enqueue_task
         self.enqueue_result = self.task_queues_manager.enqueue_result
         self.dequeue_task = self.task_queues_manager.dequeue_task
-
-
-    def broadcast(self, message):
-        message['receiver'] = self.broadcasting_channel
-        self.request(message)
-
-
-    def reset_workers(self):
-        message = {'message_type': 'exec',
-                   'to_exec': 'import machine;machine.reset()'}
-        self.broadcast(message)
-
-
-    def sync_file(self, file, load_as_tasks = False):
-        with open(file) as f:
-            content = f.read()
-
-        message = {'message_type': 'file',
-                   'kwargs': {'filename': os.path.basename(file),
-                              'file':content,
-                              'load_as_tasks': load_as_tasks}}
-        self.broadcast(message)
 
 
     def put_task(self, signature, routing_key = DEFAULT_CHANNEL):
