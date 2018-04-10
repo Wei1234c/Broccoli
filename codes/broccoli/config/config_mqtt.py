@@ -1,4 +1,6 @@
 # coding: utf-8
+import config_mqtt_params
+
 
 # DEBUG_MODE = True
 
@@ -20,12 +22,11 @@ HEART_BEAT_PROBING_PER_SECONDS = 60
 
 
 # Client ************************
-# Must config ******************
-BROKER_HOST = 'address_of_mqtt_broker'
-# Must config ******************
-GROUP_NAME = 'u_python'
-USERNAME = 'USERNAME_for_mqtt_client'
-PASSWORD = 'PASSWORD_for_mqtt_client'
+BROKER_HOST = config_mqtt_params.BROKER_HOST
+GROUP_NAME = config_mqtt_params.GROUP_NAME
+USERNAME = config_mqtt_params.USERNAME
+PASSWORD = config_mqtt_params.PASSWORD
+
 MAX_INFLIGHT_MESSAGES = 1
 KEEPALIVE = 60
 QOS_LEVEL = 0
