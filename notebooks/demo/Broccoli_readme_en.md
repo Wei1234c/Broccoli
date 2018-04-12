@@ -31,7 +31,7 @@ Wei Lin
     - Each ESP32 node is actually a combination of broker + task queue + worker. Nodes are identical in structure.  
     - Each node can push tasks into its task queue, and dispatch tasks to other ESP32 workers in the cluster.  
 - Communicate via. MQTT
-  - ESP32 has built-in WiFi functionality. Each node communicates via. MQTT protocal, and can be integrated with existing MQTT system easily.
+  - ESP32 has built-in WiFi functionality. Each node communicates via. MQTT protocol, and can be integrated with existing MQTT system easily.
 - Dynamic deployment of functions  
   - We can package functions that need to be executed in a module.py file and dynamically deploy the module to each node in the cluster via the network. Workers can then perform new functions.  
 - Support functions and instructions similar to Canvas  
