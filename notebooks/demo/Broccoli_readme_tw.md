@@ -18,18 +18,20 @@ Wei Lin
   - Celery 是以 producer/queue/consumer 的模式來運作的，它遵循 [AMQP](https://www.amqp.org/) 的協議，可以搭配一些的套件 (例如: RabbitMQ, Redis...) 提供 task queues 的功能，在 Celery 的 [文件](http://docs.celeryproject.org/en/latest/getting-started/index.html) 中有詳細的說明，另外也可以參考 [這篇](https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) 淺顯易懂的文章。
 - Canvas 是 Celery 的精華之一
   - Celery 提供了一套 [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html) 的 sub module，透過其所提供的功能，可以很容易地把一些工作 (tasks) 事先規劃好先後順序相依關係，再一次性地提交給 broker 排入 task queues 並分派給 workers 來協助處理，client 端只需要坐等最後的處理結果就可以了。很好奇它的 source code 是怎麼寫的。
-- project 目標
+- Project 目標
   - 因此，基於上面的原因，就將這個 project 的目標就設定為: 建立一個 package，可以在 client 端透過類似 Celery Canvas 的指令模式，將工作分派給 ESP32 cluster 來協助處理。
 
 ## [作法與特色]
 - 成本較低
   - 以 ESP32 作為硬體平台，建置成本較低。
+- 多 brokers
+  - 每個 node 其實也是一組 broker + task queue + worker，有幾個 nodes 就有幾個 brokers。
 - 對稱的架構
   - ESP32 cluster 的架構上是對稱的
-    - 每個 node 其實都有自己的 task queue，也有一個兼任 broker 的 worker
-    - 每個 node 都可以發出要求，將工作分派給 cluster 中其他的 ESP32 workers
-- 多 brokers
-  - 原因同上，每個 node 其實也是一組 broker + task queue + worker
+    - 每個 node 其實都是一組 broker + task queue + worker，並無結構上的差別。
+    - 每個 node 都可以將 tasks 排入其 task queue 並發出要求，將工作分派給 cluster 中其他的 ESP32 workers。
+- 透過 MQTT 溝通
+  - ESP32 本來就有 WiFi 連線的功能，各個 nodes 之間透過 MQTT 做溝通，可以很容易地與現有 MQTT 系統環境接軌。
 - 功能的動態佈署
   - 功能 (functions) 的遠端佈署: 我們可以將需要執行的 functions 包在一個 module.py 檔案中，透過網路動態佈署到 cluster 中的每個 node 上面，workers 就能夠執行新的功能。
 - 支援類似 Canvas 的功能與指令
