@@ -8,11 +8,11 @@ Wei Lin
 ![Broccoli](https://raw.githubusercontent.com/Wei1234c/Broccoli/master/jpgs/Broccoli_cluster_cover.gif)  
 
 ## [緣由與目標]
-- cluster 與 Raspberry Pi
+- Cluster 與 Raspberry Pi
   - 對於喜歡 DIY 的人來說，建立一個 cluster 是件很有趣的事情，隨著 [Raspberry Pi](https://www.raspberrypi.org/) 的出現，讓購置多台機器來建置 cluster 的成本大幅降低，網路上可以搜尋到很多用 Raspberry Pi 建立 cluster 的 [例子](https://www.google.com.tw/search?q=raspberry+pi+cluster&tbm=isch&tbo=u&source=univ&sa=X&ved=0ahUKEwiTuYuw4qDaAhWMgLwKHXaMCNkQsAQIUA&biw=1543&bih=732)。
 - 成本與數量的關係
   - 但是，目前一台 Raspberry Pi 3 畢竟還是需要 NTD 1000元以上，如果可以用更小的機器，例如 [ESP32](https://en.wikipedia.org/wiki/ESP32)，來組成一個 cluster，這樣每個 node 的成本只需要 NTD 200元左右。在相同的預算下，單一節點的成本越低，nodes 的數量就可以更多，在某些用途上會更理想。
-- 軟體的重要性
+- 常見的 frameworks 和 design patterns  
   - 現有很多通訊息定和軟體平台，例如 Kafka, Dask, Ipython Parallel, Celery, MQTT ... 都可以作為 cluster 與分散式系統中 溝通與整合的機制。有很多常見的 design patterns，例如: controller/master/broker 對應 nodes/workers/clients、透過 message queue 的機制來傳遞與管理訊息的流通、producer/queue/consumer 或 publisher/topic/subscriber 的結構。組合搭配之後可以建造出彈性且強健的分散/併行運算的運算平台， [Celery](http://www.celeryproject.org/) 是很著名的例子之一。
 - Celery 的原理與流程
   - Celery 是以 producer/queue/consumer 的模式來運作的，它遵循 [AMQP](https://www.amqp.org/) 的協議，可以搭配一些的套件 (例如: RabbitMQ, Redis...) 提供 task queues 的功能，在 Celery 的 [文件](http://docs.celeryproject.org/en/latest/getting-started/index.html) 中有詳細的說明，另外也可以參考 [這篇](https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) 淺顯易懂的文章。
@@ -40,7 +40,7 @@ Wei Lin
 
 ### 模擬的 Canvas 功能:
 
-- **[Chains](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chains)** 的主要作用是把多個運算**串聯**起來，前一個運算的結果是下一個運算的參數，這樣就可以組成一個完整的運算過程，例如下例中用`chain`組成一個 ((4+4) * 8) * 10  = 640 的計算過程  
+- **[Chains](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chains):** 的主要作用是把多個運算**串聯**起來，前一個運算的結果是下一個運算的參數，這樣就可以組成一個完整的運算過程，例如下例中用`chain`組成一個 ((4+4) * 8) * 10  = 640 的計算過程  
    
 ```
 >>> # (4 + 4) * 8 * 10
@@ -52,7 +52,7 @@ proj.tasks.add(4, 4) | proj.tasks.mul(8) | proj.tasks.mul(10)
 640
 ```
 
-- **[Groups](http://docs.celeryproject.org/en/latest/userguide/canvas.html#groups)** 的主要作用是把多個運算**併聯**起來，把很多同質性的運算同時發送給許多遠端的 workers 協助處理，再收集 workers 傳回來的結果彙整成為一個結果集，例如下例中用`group`同時計算 (2+2) 和 (4+4)，結果是 [4, 8]  
+- **[Groups](http://docs.celeryproject.org/en/latest/userguide/canvas.html#groups):** 的主要作用是把多個運算**併聯**起來，把很多同質性的運算同時發送給許多遠端的 workers 協助處理，再收集 workers 傳回來的結果彙整成為一個結果集，例如下例中用`group`同時計算 (2+2) 和 (4+4)，結果是 [4, 8]  
 
 ```
 >>> group(add.s(2, 2), add.s(4, 4))
@@ -64,7 +64,7 @@ proj.tasks.add(4, 4) | proj.tasks.mul(8) | proj.tasks.mul(10)
 [4, 8]
 ```
 
-- **[Chords](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chords)** 的主要作用是由兩段運算所組成的，第一段是一個`Groups`運算，其運算的結果會傳給第二段中的運算，作為其運算所需的參數。  
+- **[Chords](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chords):** 的主要作用是由兩段運算所組成的，第一段是一個`Groups`運算，其運算的結果會傳給第二段中的運算，作為其運算所需的參數。  
 
 其作用可以用以下的例子來說明，`header`運算的結果會傳給`callback`做進一步的處理：
 ```
@@ -80,7 +80,7 @@ chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
 ```
 
 
-- **[Map & Starmap](http://docs.celeryproject.org/en/latest/userguide/canvas.html#map-starmap)** 的主要作用和 Python 中的`map`指令一樣，會對一個 list 中的每個 element 做指定的運算，例如下例中的`map`會分別對`range(10)`,`range(100)`做`sum`運算：
+- **[Map & Starmap](http://docs.celeryproject.org/en/latest/userguide/canvas.html#map-starmap):** 的主要作用和 Python 中的`map`指令一樣，會對一個 list 中的每個 element 做指定的運算，例如下例中的`map`會分別對`range(10)`,`range(100)`做`sum`運算：
 ```
 >>> ~xsum.map([range(10), range(100)])
 [45, 4950]
@@ -91,7 +91,7 @@ chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
 [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
 ```
 
-- **[Chunks](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chunks)** 的主要作用是把一大串的資料切成指定的份數，分派給遠端的 workers 協處處理，下例中將一個 list 切分成 10等分並發派給 workers 協助處理：
+- **[Chunks](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chunks):** 的主要作用是把一大串的資料切成指定的份數，分派給遠端的 workers 協處處理，下例中將一個 list 切分成 10等分並發派給 workers 協助處理：
 ```
 >>> res = add.chunks(zip(range(100), range(100)), 10)()
 >>> res.get()
@@ -111,7 +111,7 @@ chord(add.s(i, i) for i in xrange(10))(tsum.s()).get()
 ## [測試結果]
 - 測試設備與組成
   - 以 PC 執行 client 端程式將 tasks 分派給一個由三個 ESP32 所組成的 cluster 來處理，請參考下列 video 的說明。
-  - 測試用的 [Jupyter notebook](https://github.com/Wei1234c/Broccoli/blob/master/notebooks/demo/mini%20cluster%20test.ipynb)   
+  - 詳細的程式碼，請參考 [測試用的 Jupyter notebook](https://github.com/Wei1234c/Broccoli/blob/master/notebooks/demo/mini%20cluster%20test.ipynb)   
  
  
 [![ROS chatters on Windows](https://raw.githubusercontent.com/Wei1234c/Broccoli/master/jpgs/youtube.jpeg)](https://youtu.be/LbiSnh8w1kM)  
