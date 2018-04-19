@@ -19,7 +19,7 @@ Wei Lin
 - Canvas is one of Celery's cores  
   - Celery provides a sub-module called [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html). Through Canvas it's easy to organize tasks into workflow and dispatch it all at once to workers for processing. The client only needs to wait for the final result. I was very curious and interested in its souce code.  
 - Project goal:  
-  - Therefore, the goal of this project was set as: Creating a package, with which we can, in a Celery-Canvas fashion, dispatch tasks to the ESP32 cluster for processing.  
+  - Therefore, the goal of this project was set as: Creating a package, with which we can, in a Celery-Canvas fashion, dispatch tasks to an ESP32 cluster for processing.  
 
 ## [Design and Features]
 - Low costs  
@@ -123,10 +123,10 @@ The effect of `starmap` is the same as that of the `map` command. It will perfor
   - If you faced CPU-bound problems, performance of ESP32 cluster is not as good as multi-processes on multi-core CPUs.  
   - If you faced IO-bound problems, performance of ESP32 cluster is not as good as multi-threads on multicore CPUs.  
 - Advantages  
-  - However: 
-    - if you need to deal with problems of geographically dispersed nature, such as large-area / scattered data points, or
-    - you need to squeeze a controller into a tiny space, for example a toaster, or  
-    - you want to coordinate a system's parts which are separated far away, for example a robot a mile wide, a mile long.  
+  - However, if you need to:
+    - deal with problems of geographically dispersed nature, such as large-area / scattered data points, or  
+    - squeeze a controller into a tiny space, for example a toaster, or  
+    - coordinate a system with parts separated far away, for example a robot a mile wide, a mile long.  
     
     with the low cost and flexibility of deploying, ESP32 is preferable than an ordinary PC or Raspberry Pi.  
 
