@@ -17,7 +17,7 @@ Wei Lin
 - Mechanism of Celery  
   - Celery operates in a producer/queue/consumer paradigm. It is used with some suites (eg RabbitMQ, Redis...) which follow the [AMQP](https://www.amqp.org/) protocol. The mechanism is described in details in the [Celery documents](http://docs.celeryproject.org/en/latest/getting-started/index.html). Please also refer to [this]( Https://www.vinta.com.br/blog/2017/celery-overview-archtecture-and-how-it-works/) easy-to-understand articles.  
 - Canvas is one of Celery's cores  
-  - Celery provides a sub-module called [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html). Through Canvas it's easy to organize tasks into workflow and dispatch it all at once to workers for processing. The client only needs to wait for the final result. I was very curious and interested in its souce code.  
+  - Celery provides a sub-module called [Canvas](http://docs.celeryproject.org/en/latest/userguide/canvas.html). With Canvas it's easy to organize tasks into workflow and dispatch it all at once to workers for processing. The client only needs to wait for the final result. I was very curious and interested in its souce code.  
 - Project goal:  
   - Therefore, the goal of this project was set as: Creating a package, with which we can, in a Celery-Canvas fashion, dispatch tasks to an ESP32 cluster for processing.  
 
@@ -96,15 +96,15 @@ The effect of `starmap` is the same as that of the `map` command. It will perfor
 >>> res = add.chunks(zip(range(100), range(100)), 10)()
 >>> res.get()
 [[0, 2, 4, 6, 8, 10, 12, 14, 16, 18],
- [20, 22, 24, 26, 28, 30, 32, 34, 36, 38],
- [40, 42, 44, 46, 48, 50, 52, 54, 56, 58],
- [60, 62, 64, 66, 68, 70, 72, 74, 76, 78],
- [80, 82, 84, 86, 88, 90, 92, 94, 96, 98],
- [100, 102, 104, 106, 108, 110, 112, 114, 116, 118],
- [120, 122, 124, 126, 128, 130, 132, 134, 136, 138],
- [140, 142, 144, 146, 148, 150, 152, 154, 156, 158],
- [160,162,164,166,168,170,172,174,176,178],
- [180, 182, 184, 186, 188, 190, 192, 194, 196, 198]]
+ [20, 22, 24, 26, 28, 30, 32, 34, 36, 38],
+ [40, 42, 44, 46, 48, 50, 52, 54, 56, 58],
+ [60, 62, 64, 66, 68, 70, 72, 74, 76, 78],
+ [80, 82, 84, 86, 88, 90, 92, 94, 96, 98],
+ [100, 102, 104, 106, 108, 110, 112, 114, 116, 118],
+ [120, 122, 124, 126, 128, 130, 132, 134, 136, 138],
+ [140, 142, 144, 146, 148, 150, 152, 154, 156, 158],
+ [160, 162, 164, 166, 168, 170, 172, 174, 176, 178],
+ [180, 182, 184, 186, 188, 190, 192, 194, 196, 198]]
 ```
 
 
@@ -120,12 +120,12 @@ The effect of `starmap` is the same as that of the `map` command. It will perfor
 
 ## [Disadvantages and Advantages]
 - Disadvantages  
-  - If you faced CPU-bound problems, performance of ESP32 cluster is not as good as multi-processes on multi-core CPUs.  
-  - If you faced IO-bound problems, performance of ESP32 cluster is not as good as multi-threads on multicore CPUs.  
+  - If you faced CPU-bound problems, ESP32 cluster is less powerful than multi-core CPUs running multi-processes.  
+  - If you faced IO-bound problems, ESP32 cluster is less powerful than multi-core CPUs running multi-threads.  
 - Advantages  
   - However, if you need to:
-    - deal with problems of geographically dispersed nature, such as large-area / scattered data points, or  
-    - squeeze a controller into a tiny space, for example a toaster, or  
+    - deal with problems of geographically dispersed nature, such as collecting data from large-area / scattered data points, or  
+    - squeeze a controller into a tiny space, for example into a toaster, or  
     - coordinate a system with parts separated far away, for example a robot a mile wide, a mile long.  
     
     with the low cost and flexibility of deploying, ESP32 is preferable than an ordinary PC or Raspberry Pi.  
