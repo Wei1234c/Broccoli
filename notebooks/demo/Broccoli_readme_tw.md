@@ -38,7 +38,7 @@ Wei Lin
   - 支援類似 Celery Canvas 的機制，可以組成需要的處理流程。
 
 
-### 模擬的 Canvas 功能:
+### 模擬的 Canvas 功能，現在可以在 ESP32 cluster 上執行:
 
 - **[Chains](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chains):** 的主要作用是把多個運算**串聯**起來，前一個運算的結果是下一個運算的參數，這樣就可以組成一個完整的運算過程，例如下例中用`chain`組成一個 ((4+4) * 8) * 10  = 640 的計算過程  
    

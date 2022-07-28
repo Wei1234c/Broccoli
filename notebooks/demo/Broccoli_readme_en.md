@@ -38,10 +38,9 @@ Wei Lin
   - Support mechanisms similar to Celery Canvas for organizing tasks.  
 
 
-### Some Canvas functionalities:
+### Some Canvas functionalities, now also run on ESP32 cluster:
 
 - **[Chains](http://docs.celeryproject.org/en/latest/userguide/canvas.html#chains):** main purpose is to **link** multiple operations, The result of previous operation is the parameter of the next operation. For example, the following example uses `chain` to perform ((4+4) * 8) * 10 = 640  
-
 
 ```
 >>> # (4 + 4) * 8 * 10
